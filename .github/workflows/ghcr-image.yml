@@ -11,7 +11,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/mingjunyan123/cli-proxy-api
+  IMAGE_NAME: ghcr.io/mingjunyan123/cliproxyapi
 
 jobs:
   docker:
