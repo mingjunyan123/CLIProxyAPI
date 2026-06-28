@@ -20,9 +20,9 @@ import (
 const maxErrorOnlyCapturedRequestBodyBytes int64 = 1 << 20 // 1 MiB
 
 // RequestLoggingMiddleware creates a Gin middleware that logs HTTP requests and responses.
-// It captures detailed information about the request and response, including headers and body,
-// and uses the provided RequestLogger to record this data. When full request logging is disabled,
-// body capture is limited to small known-size payloads to avoid large per-request memory spikes.
+// When full request logging is enabled, outbound request logging is handled by executor helpers.
+// When full request logging is disabled, body capture is limited to small known-size payloads
+// to avoid large per-request memory spikes while preserving error-only logs.
 func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if logger == nil {
@@ -42,6 +42,10 @@ func RequestLoggingMiddleware(logger logging.RequestLogger) gin.HandlerFunc {
 		}
 
 		loggerEnabled := logger.IsEnabled()
+		if loggerEnabled {
+			c.Next()
+			return
+		}
 
 		// Capture request information
 		requestInfo, err := captureRequestInfo(c, shouldCaptureRequestBody(loggerEnabled, c.Request))
