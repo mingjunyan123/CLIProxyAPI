@@ -1,8 +1,11 @@
 package helps
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,8 +44,25 @@ func writeClaudeOAuthOutboundLog(ctx context.Context, cfg *config.Config, info U
 	}
 
 	filePath := filepath.Join(logDir, outboundRequestLogFilename(ctx, info))
-	if errWrite := os.WriteFile(filePath, []byte(builder.String()), 0644); errWrite != nil {
+	if errWrite := writeClaudeOAuthGzipLog(filePath, builder.String()); errWrite != nil {
 		return fmt.Errorf("write claude oauth request log: %w", errWrite)
+	}
+	return nil
+}
+
+func writeClaudeOAuthGzipLog(filePath, content string) error {
+	var compressed bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressed)
+	if _, errWrite := io.WriteString(gzipWriter, content); errWrite != nil {
+		_ = gzipWriter.Close()
+		return fmt.Errorf("compress log: %w", errWrite)
+	}
+	if errClose := gzipWriter.Close(); errClose != nil {
+		return fmt.Errorf("finish log compression: %w", errClose)
+	}
+	if errWrite := os.WriteFile(filePath, compressed.Bytes(), 0644); errWrite != nil {
+		_ = os.Remove(filePath)
+		return errWrite
 	}
 	return nil
 }
@@ -62,7 +82,7 @@ func outboundRequestLogFilename(ctx context.Context, info UpstreamRequestLog) st
 		pathPart = "root"
 	}
 	timestamp := time.Now().Format("2006-01-02T150405.000000000")
-	return fmt.Sprintf("api-request-%s-%s-%s.log", sanitizeLogPathPart(pathPart), timestamp, sanitizeLogPathPart(requestID))
+	return fmt.Sprintf("api-request-%s-%s-%s.log.gz", sanitizeLogPathPart(pathPart), timestamp, sanitizeLogPathPart(requestID))
 }
 
 func sanitizeLogPathPart(value string) string {

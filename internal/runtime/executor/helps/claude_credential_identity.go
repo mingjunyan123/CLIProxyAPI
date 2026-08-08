@@ -235,7 +235,8 @@ func newClaudeCredentialMetadataRequestError(err error) error {
 	return &claudeCredentialMetadataRequestError{cause: err}
 }
 
-// ApplyClaudeCredentialMetadata rewrites the identity exception shared by native and cloaked OAuth requests.
+// ApplyClaudeCredentialMetadata applies credential account metadata while
+// preserving a valid adapter-selected device identity.
 func ApplyClaudeCredentialMetadata(payload []byte, auth *cliproxyauth.Auth, sessionID string) ([]byte, string, error) {
 	if auth == nil {
 		return nil, "", fmt.Errorf("apply Claude credential metadata: auth is nil")
@@ -258,13 +259,17 @@ func ApplyClaudeCredentialMetadata(payload []byte, auth *cliproxyauth.Auth, sess
 		}
 	}
 
-	deviceIDs, _, errDeviceIDs := claudeauth.EnsureDeviceIDPoolFor(&auth.Metadata)
-	if errDeviceIDs != nil {
-		return nil, "", errDeviceIDs
-	}
-	deviceID, errDeviceID := claudeauth.SelectDeviceID(deviceIDs, sessionID)
-	if errDeviceID != nil {
-		return nil, "", errDeviceID
+	deviceID := claudeAdapterDeviceID(existing)
+	if deviceID == "" {
+		deviceIDs, _, errDeviceIDs := claudeauth.EnsureDeviceIDPoolFor(&auth.Metadata)
+		if errDeviceIDs != nil {
+			return nil, "", errDeviceIDs
+		}
+		var errDeviceID error
+		deviceID, errDeviceID = claudeauth.SelectDeviceID(deviceIDs, sessionID)
+		if errDeviceID != nil {
+			return nil, "", errDeviceID
+		}
 	}
 	accountUUID := ClaudeCredentialAccountUUID(auth)
 	if accountUUID == "" {

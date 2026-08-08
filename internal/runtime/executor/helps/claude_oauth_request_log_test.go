@@ -1,7 +1,9 @@
 package helps
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,15 +30,32 @@ func TestRecordAPIRequestWritesOnlyClaudeOAuthOutboundLog(t *testing.T) {
 		AuthValue: "user@example.com",
 	})
 
-	matches, err := filepath.Glob(filepath.Join(logRoot, "logs", "claude-oauth", "user-example.com", "*.log"))
+	matches, err := filepath.Glob(filepath.Join(logRoot, "logs", "claude-oauth", "user-example.com", "*.log.gz"))
 	if err != nil {
 		t.Fatalf("glob outbound logs: %v", err)
 	}
 	if len(matches) != 1 {
 		t.Fatalf("outbound log files = %d, want 1", len(matches))
 	}
+	plainMatches, err := filepath.Glob(filepath.Join(logRoot, "logs", "claude-oauth", "user-example.com", "*.log"))
+	if err != nil {
+		t.Fatalf("glob plain outbound logs: %v", err)
+	}
+	if len(plainMatches) != 0 {
+		t.Fatalf("plain outbound log files = %d, want 0", len(plainMatches))
+	}
 
-	data, err := os.ReadFile(matches[0])
+	file, err := os.Open(matches[0])
+	if err != nil {
+		t.Fatalf("open outbound log: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatalf("open outbound log gzip stream: %v", err)
+	}
+	defer func() { _ = gzipReader.Close() }()
+	data, err := io.ReadAll(gzipReader)
 	if err != nil {
 		t.Fatalf("read outbound log: %v", err)
 	}

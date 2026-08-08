@@ -131,7 +131,7 @@ func TestEnsureClaudeCredentialDevicePoolRequiredMigratesHomeKVToOne(t *testing.
 	}
 }
 
-func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *testing.T) {
+func TestApplyClaudeCredentialMetadataPreservesAdapterDeviceAndExtras(t *testing.T) {
 	deviceIDs := []string{
 		"0000000000000000000000000000000000000000000000000000000000000000",
 	}
@@ -147,6 +147,9 @@ func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *
 		t.Fatalf("ApplyClaudeCredentialMetadata() error = %v", errApply)
 	}
 	userID := gjson.GetBytes(updated, "metadata.user_id").String()
+	if selectedDevice != strings.Repeat("f", 64) {
+		t.Fatalf("selected device_id = %q, want adapter device", selectedDevice)
+	}
 	if got := gjson.Get(userID, "device_id").String(); got != selectedDevice {
 		t.Fatalf("device_id = %q, want selected %q", got, selectedDevice)
 	}

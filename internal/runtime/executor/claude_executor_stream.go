@@ -81,18 +81,15 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	if err != nil {
 		return nil, err
 	}
-	// Only the Messages endpoint on Anthropic itself was captured; count_tokens
-	// keeps its own shape and other gateways never see this field.
+	// Keep Claude diagnostics on the captured cloaked Messages path. Automatic
+	// context_management injection is intentionally disabled.
 	diagnosticsState := claudeDiagnosticsRequestState{}
+	claudeCodeWireAugmentationEligible := cloaked && isAnthropicUpstreamBase(baseURL)
 	contextManagementState := claudeCodeContextManagementState{
-		eligible:    cloaked && isAnthropicUpstreamBase(baseURL),
 		callerOwned: gjson.GetBytes(body, "context_management").Exists(),
 	}
-	if contextManagementState.eligible {
-		body, contextManagementState.automaticallyInjected = injectClaudeCodeContextManagement(body)
-		if oauthToken {
-			body, diagnosticsState = injectClaudeDiagnostics(body, auth, claudeSessionID)
-		}
+	if claudeCodeWireAugmentationEligible && oauthToken {
+		body, diagnosticsState = injectClaudeDiagnostics(body, auth, claudeSessionID)
 	}
 
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
