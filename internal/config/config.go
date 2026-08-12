@@ -43,6 +43,9 @@ type Config struct {
 	// CommercialMode disables high-overhead request logging and HTTP middleware features to minimize per-request memory usage.
 	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
 
+	// ClaudeOAuthOutboundLog writes Claude OAuth upstream request payloads to gzip files.
+	ClaudeOAuthOutboundLog bool `yaml:"claude-oauth-outbound-log" json:"claude-oauth-outbound-log"`
+
 	// LoggingToFile controls whether application logs are written to rotating files or stdout.
 	LoggingToFile bool `yaml:"logging-to-file" json:"logging-to-file"`
 

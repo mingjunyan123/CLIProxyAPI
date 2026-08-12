@@ -111,6 +111,10 @@ plugins:
 # When true, disable high-overhead request logging and HTTP middleware features to reduce per-request memory usage under high concurrency.
 commercial-mode: false
 
+# When true, write Claude OAuth upstream request payloads to logs/claude-oauth as gzip files.
+# This lightweight log is independent of request-log and streams directly to disk without full-payload buffers.
+claude-oauth-outbound-log: false
+
 # When true, write application logs to rotating files instead of stdout
 logging-to-file: false
 

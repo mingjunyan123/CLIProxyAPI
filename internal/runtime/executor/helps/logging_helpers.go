@@ -62,11 +62,24 @@ func requestLogCaptureEnabled(cfg *config.Config) bool {
 
 // RecordAPIRequest stores the upstream request metadata in Gin context for request logging.
 func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequestLog) {
-	if cfg == nil || cfg.CommercialMode {
+	if cfg == nil {
 		return
 	}
 	ginCtx := ginContextFrom(ctx)
-	if cfg.RequestLog && shouldWriteClaudeOAuthOutboundLog(info) {
+	lightweightOutboundLog := cfg.ClaudeOAuthOutboundLog && shouldWriteClaudeOAuthOutboundLog(info)
+	lightweightOutboundCaptured := false
+	if lightweightOutboundLog {
+		index := len(getAttempts(ginCtx)) + 1
+		if errWrite := writeLightweightClaudeOAuthOutboundLog(ctx, cfg, info, index); errWrite != nil {
+			log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
+		} else {
+			lightweightOutboundCaptured = true
+		}
+	}
+	if cfg.CommercialMode {
+		return
+	}
+	if cfg.RequestLog && !cfg.ClaudeOAuthOutboundLog && shouldWriteClaudeOAuthOutboundLog(info) {
 		index := len(getAttempts(ginCtx)) + 1
 		if errWrite := writeClaudeOAuthOutboundLog(ctx, cfg, info, index); errWrite != nil {
 			log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
@@ -76,7 +89,9 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 		return
 	}
 	if !cfg.RequestLog {
-		deferAPIRequest(ginCtx, info)
+		if !lightweightOutboundCaptured {
+			deferAPIRequest(ginCtx, info)
+		}
 		return
 	}
 
