@@ -1239,8 +1239,11 @@ func TestClaudeExecutor_ConfirmedAdapterOAuthPreservesNativeBody(t *testing.T) {
 				if got := gjson.GetBytes(seenBody, "tools.1.name").String(); got != "search_web" {
 					t.Fatalf("tools.1.name = %q, want confirmed native unknown name preserved", got)
 				}
-				assertClaudeCredentialIdentity(t, seenBody, seenHeaders, []string{strings.Repeat("c", 64)}, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+				assertClaudeCredentialIdentity(t, seenBody, seenHeaders, credentialDeviceIDs, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 				upstreamUserID := gjson.GetBytes(seenBody, "metadata.user_id").String()
+				if upstreamDeviceID := gjson.Get(upstreamUserID, "device_id").String(); upstreamDeviceID == strings.Repeat("c", 64) {
+					t.Fatalf("device_id = %q, want request device replaced by credential pool", upstreamDeviceID)
+				}
 				if got := gjson.Get(upstreamUserID, "session_id").String(); got != "33333333-4444-4555-8666-777777777777" {
 					t.Fatalf("session_id = %q, want downstream agent session", got)
 				}
