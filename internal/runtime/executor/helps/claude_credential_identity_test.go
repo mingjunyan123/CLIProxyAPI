@@ -147,6 +147,9 @@ func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *
 		t.Fatalf("ApplyClaudeCredentialMetadata() error = %v", errApply)
 	}
 	userID := gjson.GetBytes(updated, "metadata.user_id").String()
+	if selectedDevice != deviceIDs[0] {
+		t.Fatalf("selected device_id = %q, want credential pool device", selectedDevice)
+	}
 	if got := gjson.Get(userID, "device_id").String(); got != selectedDevice {
 		t.Fatalf("device_id = %q, want selected %q", got, selectedDevice)
 	}
