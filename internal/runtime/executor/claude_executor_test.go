@@ -1177,68 +1177,113 @@ func TestClaudeExecutor_AgentSDKEntrypointWithStrongSignalsUsesCLICloak(t *testi
 	}
 }
 
-func TestClaudeExecutor_ConfirmedVSCodeOAuthPreservesToolNames(t *testing.T) {
+func TestClaudeExecutor_ConfirmedAdapterOAuthPreservesNativeBody(t *testing.T) {
 	var seenBody []byte
 	var seenHeaders http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenBody, _ = io.ReadAll(r.Body)
 		seenHeaders = r.Header.Clone()
+		if gjson.GetBytes(seenBody, "stream").Bool() {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-6\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\ndata: {\"type\":\"message_stop\"}\n\n"))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
 	defer server.Close()
 
 	const userID = `{"device_id":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","account_uuid":"","session_id":"33333333-4444-4555-8666-777777777777"}`
-	payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.258.9cb; cc_entrypoint=claude-vscode; cch=00000;"}],"tools":[{"name":"bash","description":"known native name must pass through","input_schema":{"type":"object"}},{"name":"search_web","description":"unknown native name must pass through","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
 	deviceIDs := []string{
 		"0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	executor := NewClaudeExecutor(&config.Config{})
-	auth := &cliproxyauth.Auth{
-		Attributes: map[string]string{
-			"api_key":  "sk-ant-oat-native-vscode",
-			"base_url": server.URL,
-		},
-		Metadata: map[string]any{
-			"account_uuid":      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-			"claude_device_ids": deviceIDs,
-			"cloak_mode":        "always",
-		},
-	}
-	_, errExecute := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
-		Model:   "claude-opus-4-6",
-		Payload: payload,
-	}, cliproxyexecutor.Options{
-		SourceFormat:    sdktranslator.FormatClaude,
-		OriginalRequest: payload,
-		Headers: http.Header{
-			"User-Agent":                  {"claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)"},
-			"X-App":                       {"cli"},
-			"Anthropic-Beta":              {"claude-code-20250219"},
-			"X-Stainless-Package-Version": {"0.112.1"},
-			"X-Stainless-Runtime-Version": {"v26.3.0"},
-		},
-	})
-	if errExecute != nil {
-		t.Fatalf("Execute() error = %v", errExecute)
-	}
+	for _, entrypoint := range []string{"claude-vscode", "local-agent", "claude-desktop-3p"} {
+		for _, clientVersion := range []string{"2.1.258", "2.1.270"} {
+			for _, stream := range []bool{false, true} {
+				name := entrypoint + " " + clientVersion + " execute"
+				if stream {
+					name += " stream"
+				}
+				t.Run(name, func(t *testing.T) {
+					seenBody = nil
+					seenHeaders = nil
+					billingHeader := "x-anthropic-billing-header: cc_version=2.1.258.04c; cc_entrypoint=" + entrypoint + "; cch=00000;"
+					payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":` + fmt.Sprintf("%q", billingHeader) + `}],"tools":[{"name":"bash","description":"known native name must pass through","input_schema":{"type":"object"}},{"name":"search_web","description":"unknown native name must pass through","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
+					executor := NewClaudeExecutor(&config.Config{})
+					auth := &cliproxyauth.Auth{
+						Attributes: map[string]string{
+							"api_key":  "sk-ant-oat-native-adapter",
+							"base_url": server.URL,
+						},
+						Metadata: map[string]any{
+							"account_uuid":      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							"claude_device_ids": deviceIDs,
+							"cloak_mode":        "always",
+						},
+					}
+					packageVersion := "0.112.1"
+					if clientVersion != "2.1.258" {
+						packageVersion = "0.120.0"
+					}
+					headers := http.Header{
+						"User-Agent":                  {"claude-cli/" + clientVersion + " (external, " + entrypoint + ", agent-sdk/0.3.220)"},
+						"X-App":                       {"cli"},
+						"Anthropic-Beta":              {"claude-code-20250219"},
+						"X-Stainless-Package-Version": {packageVersion},
+						"X-Stainless-Runtime-Version": {"v26.3.0"},
+					}
+					request := cliproxyexecutor.Request{Model: "claude-opus-4-6", Payload: payload}
+					options := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude, OriginalRequest: payload, Headers: headers}
+					if stream {
+						result, errStream := executor.ExecuteStream(context.Background(), auth, request, options)
+						if errStream != nil {
+							t.Fatalf("ExecuteStream() error = %v", errStream)
+						}
+						for chunk := range result.Chunks {
+							if chunk.Err != nil {
+								t.Fatalf("stream chunk error = %v", chunk.Err)
+							}
+						}
+					} else if _, errExecute := executor.Execute(context.Background(), auth, request, options); errExecute != nil {
+						t.Fatalf("Execute() error = %v", errExecute)
+					}
 
-	if got := gjson.GetBytes(seenBody, "tools.0.name").String(); got != "bash" {
-		t.Fatalf("tools.0.name = %q, want confirmed native known name preserved", got)
-	}
-	if got := gjson.GetBytes(seenBody, "tools.1.name").String(); got != "search_web" {
-		t.Fatalf("tools.1.name = %q, want confirmed native unknown name preserved", got)
-	}
-	assertClaudeCredentialIdentity(t, seenBody, seenHeaders, deviceIDs, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	upstreamUserID := gjson.GetBytes(seenBody, "metadata.user_id").String()
-	if upstreamDeviceID := gjson.Get(upstreamUserID, "device_id").String(); upstreamDeviceID == strings.Repeat("c", 64) {
-		t.Fatalf("device_id = %q, want native device replaced by credential pool", upstreamDeviceID)
-	}
-	if got := gjson.Get(upstreamUserID, "session_id").String(); got != "33333333-4444-4555-8666-777777777777" {
-		t.Fatalf("session_id = %q, want downstream agent session", got)
-	}
-	if got := seenHeaders.Get("X-Claude-Code-Session-Id"); got != "33333333-4444-4555-8666-777777777777" {
-		t.Fatalf("X-Claude-Code-Session-Id = %q, want downstream agent session", got)
+					if got := gjson.GetBytes(seenBody, "system.0.text").String(); !strings.Contains(got, "cc_version=2.1.258.04c; cc_entrypoint="+entrypoint+";") {
+						t.Fatalf("billing header = %q, want adapter suffix and entrypoint preserved", got)
+					}
+					if got := gjson.GetBytes(seenBody, "system.#").Int(); got != 1 {
+						t.Fatalf("system block count = %d, want native body preserved", got)
+					}
+					if got := gjson.GetBytes(seenBody, "context_management"); got.Exists() {
+						t.Fatalf("context_management = %s, want no automatic injection", got.Raw)
+					}
+					if got := gjson.GetBytes(seenBody, "tools.0.name").String(); got != "bash" {
+						t.Fatalf("tools.0.name = %q, want confirmed native known name preserved", got)
+					}
+					if got := gjson.GetBytes(seenBody, "tools.1.name").String(); got != "search_web" {
+						t.Fatalf("tools.1.name = %q, want confirmed native unknown name preserved", got)
+					}
+					assertClaudeCredentialIdentity(t, seenBody, seenHeaders, deviceIDs, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+					upstreamUserID := gjson.GetBytes(seenBody, "metadata.user_id").String()
+					if upstreamDeviceID := gjson.Get(upstreamUserID, "device_id").String(); upstreamDeviceID == strings.Repeat("c", 64) {
+						t.Fatalf("device_id = %q, want request device replaced by credential pool", upstreamDeviceID)
+					}
+					if got := gjson.Get(upstreamUserID, "session_id").String(); got != "33333333-4444-4555-8666-777777777777" {
+						t.Fatalf("session_id = %q, want downstream agent session", got)
+					}
+					if got := seenHeaders.Get("X-Claude-Code-Session-Id"); got != "33333333-4444-4555-8666-777777777777" {
+						t.Fatalf("X-Claude-Code-Session-Id = %q, want downstream agent session", got)
+					}
+					wantUA := "claude-cli/2.1.258 (external, " + entrypoint + ", agent-sdk/0.3.220)"
+					if got := seenHeaders.Get("User-Agent"); got != wantUA {
+						t.Fatalf("User-Agent = %q, want outbound baseline %q", got, wantUA)
+					}
+					if got := seenHeaders.Get("X-Stainless-Package-Version"); got != "0.112.1" {
+						t.Fatalf("X-Stainless-Package-Version = %q, want 0.112.1", got)
+					}
+				})
+			}
+		}
 	}
 }
 
