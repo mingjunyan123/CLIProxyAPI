@@ -240,14 +240,14 @@ func normalizedClaudeBetaHeader(headers http.Header) string {
 
 // measuredClaudeCodeHelperHeadersMatch validates the helper transport envelope.
 //
-// Platform and software-version headers are deliberately NOT compared for
-// equality. The device-profile pipeline this detector feeds already pins OS/Arch
-// to the configured baseline and replaces a non-baseline software tuple instead
-// of rejecting it, so demanding equality here would classify a genuine Claude
-// Code helper from Windows/Linux, or from a different Node or SDK build, as a
-// foreign client and cloak it. Values that carry real discriminating power - the
-// exact beta allowlist, the body shape, the billing CCH and the session binding -
-// stay strict.
+// Platform headers are deliberately NOT compared for equality. The device-profile
+// pipeline this detector feeds already pins OS/Arch to the configured baseline
+// and rewrites a newer Claude Code software tuple instead of rejecting it, so a
+// genuine helper from Windows/Linux or from Claude Code 2.1.259+ is not cloaked.
+// At the measured baseline the package and runtime still have to match that
+// release; values that carry real discriminating power - the exact beta
+// allowlist, the body shape, the billing CCH and the session binding - stay
+// strict.
 func measuredClaudeCodeHelperHeadersMatch(headers http.Header, cfg *config.Config, shape claudeCodeHelperShape) bool {
 	profile := defaultClaudeDeviceProfile(cfg)
 	expected := map[string]string{
@@ -285,7 +285,7 @@ func measuredClaudeCodeHelperHeadersMatch(headers http.Header, cfg *config.Confi
 		candidate.version = version
 		candidate.hasVersion = true
 	}
-	if !meetsClaudeDeviceProfileBaseline(candidate, profile) {
+	if !meetsClaudeNativeSoftwareFloor(candidate, profile) {
 		return false
 	}
 	// Two measured transport envelopes, selected by the configured baseline so

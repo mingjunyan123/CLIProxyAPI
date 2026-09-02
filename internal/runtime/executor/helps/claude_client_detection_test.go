@@ -105,8 +105,8 @@ func TestDetectClaudeCodeRequestAcceptsConfiguredMeasuredBaseline(t *testing.T) 
 	headers := confirmedClaudeCodeHeaders()
 	headers.Set("User-Agent", "claude-cli/2.2.0 (external, cli)")
 	payload := claudeCodeDetectionPayload(validClaudeCodeMetadataUserID)
-	if detection := DetectClaudeCodeRequest(headers, payload, false); detection.Confirmed {
-		t.Fatalf("default detection = %#v, want unconfigured 2.2.0 rejected", detection)
+	if detection := DetectClaudeCodeRequest(headers, payload, false); !detection.Confirmed {
+		t.Fatalf("default detection = %#v, want 2.2.0 confirmed against the 2.1.258 floor", detection)
 	}
 
 	cfg := &config.Config{ClaudeHeaderDefaults: config.ClaudeHeaderDefaults{
@@ -187,6 +187,10 @@ func TestDetectClaudeCodeRequestAdapterEntrypointsRequireBaselineVersion(t *test
 	}{
 		{name: "local-agent 2.1.258", userAgent: "claude-cli/2.1.258 (external, local-agent, agent-sdk/0.3.220)", want: true},
 		{name: "desktop-3p 2.1.258", userAgent: "claude-cli/2.1.258 (external, claude-desktop-3p)", want: true},
+		{name: "cli 2.1.270", userAgent: "claude-cli/2.1.270 (external, cli)", want: true},
+		{name: "vscode 2.1.270", userAgent: "claude-cli/2.1.270 (external, claude-vscode, agent-sdk/0.3.220)", want: true},
+		{name: "local-agent 2.1.270", userAgent: "claude-cli/2.1.270 (external, local-agent, agent-sdk/0.3.220)", want: true},
+		{name: "desktop-3p 2.1.270", userAgent: "claude-cli/2.1.270 (external, claude-desktop-3p)", want: true},
 		{name: "local-agent 2.1.220", userAgent: "claude-cli/2.1.220 (external, local-agent, agent-sdk/0.3.220)"},
 		{name: "desktop-3p 2.1.220", userAgent: "claude-cli/2.1.220 (external, claude-desktop-3p)"},
 	} {
@@ -489,8 +493,6 @@ func TestDetectClaudeCodeRequestRejectsMalformedNativeSignals(t *testing.T) {
 		{name: "uppercase device", headers: confirmedClaudeCodeHeaders(), userID: `{"device_id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`},
 		{name: "invalid session", headers: confirmedClaudeCodeHeaders(), userID: `{"device_id":"0000000000000000000000000000000000000000000000000000000000000000","account_uuid":"","session_id":"session"}`},
 		{name: "malformed user agent", headers: http.Header{"User-Agent": {"claude-cli/not-a-version (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
-		{name: "unmeasured next-minor user agent", headers: http.Header{"User-Agent": {"claude-cli/2.2.0 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
-		{name: "implausible future user agent", headers: http.Header{"User-Agent": {"claude-cli/999.0.0 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
 		{name: "unrelated beta", headers: http.Header{"User-Agent": {"claude-cli/2.1.258 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"anything"}}, userID: validClaudeCodeMetadataUserID},
 	}
 	for _, test := range tests {
@@ -593,6 +595,18 @@ func TestDetectClaudeCodeRequestRejectsHelperWithForeignSoftwareTuple(t *testing
 				t.Fatalf("detection = %#v, want a foreign %s to disqualify the helper profile", detection, name)
 			}
 		})
+	}
+}
+
+func TestDetectClaudeCodeRequestAcceptsNewerThanBaselineHelper(t *testing.T) {
+	headers := measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true))
+	headers.Set("User-Agent", "claude-cli/2.1.270 (external, cli)")
+	headers.Set("X-Stainless-Package-Version", "0.120.0")
+	headers.Set("X-Stainless-Runtime-Version", "v26.4.0")
+
+	detection := DetectClaudeCodeRequest(headers, measuredClaudeCodeMinimalHelperPayload(), false)
+	if !detection.Confirmed || !detection.HelperProfile {
+		t.Fatalf("detection = %#v, want a confirmed helper from Claude Code newer than the 2.1.258 baseline", detection)
 	}
 }
 

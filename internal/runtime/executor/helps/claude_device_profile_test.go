@@ -127,6 +127,48 @@ func TestResolveClaudeDeviceProfileLocalUsesBaselineForInvalidSignals(t *testing
 	}
 }
 
+func TestPinClaudeCLIUserAgentVersionKeepsEntrypoint(t *testing.T) {
+	baseline := claudeCLIVersion{major: 2, minor: 1, patch: 258}
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "claude-cli/2.1.270 (external, cli)", want: "claude-cli/2.1.258 (external, cli)"},
+		{in: "claude-cli/2.1.270 (external, local-agent, agent-sdk/0.3.220)", want: "claude-cli/2.1.258 (external, local-agent, agent-sdk/0.3.220)"},
+		{in: "claude-cli/2.1.270 (external, claude-desktop-3p)", want: "claude-cli/2.1.258 (external, claude-desktop-3p)"},
+		{in: "claude-cli/2.1.270 (external, claude-vscode, agent-sdk/0.3.220)", want: "claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)"},
+		{in: "claude-cli/2.1.258 (external, cli)", want: "claude-cli/2.1.258 (external, cli)"},
+	}
+	for _, test := range tests {
+		if got := pinClaudeCLIUserAgentVersion(test.in, baseline); got != test.want {
+			t.Fatalf("pinClaudeCLIUserAgentVersion(%q) = %q, want %q", test.in, got, test.want)
+		}
+	}
+}
+
+func TestApplyClaudeLegacyDeviceHeadersPinsNewerNativeUserAgentToBaseline(t *testing.T) {
+	request, errRequest := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	if errRequest != nil {
+		t.Fatal(errRequest)
+	}
+	incoming := claudeDeviceHeaders("claude-cli/2.1.270 (external, local-agent, agent-sdk/0.3.220)")
+	incoming.Set("X-Stainless-Package-Version", "0.120.0")
+	incoming.Set("X-Stainless-Runtime-Version", "v26.4.0")
+
+	ApplyClaudeLegacyDeviceHeaders(request, incoming, nil, true)
+
+	if got := request.Header.Get("User-Agent"); got != "claude-cli/2.1.258 (external, local-agent, agent-sdk/0.3.220)" {
+		t.Fatalf("User-Agent = %q, want baseline version with local-agent entrypoint", got)
+	}
+	baseline := defaultClaudeDeviceProfile(nil)
+	if got := request.Header.Get("X-Stainless-Package-Version"); got != baseline.PackageVersion {
+		t.Fatalf("X-Stainless-Package-Version = %q, want %q", got, baseline.PackageVersion)
+	}
+	if got := request.Header.Get("X-Stainless-Runtime-Version"); got != baseline.RuntimeVersion {
+		t.Fatalf("X-Stainless-Runtime-Version = %q, want %q", got, baseline.RuntimeVersion)
+	}
+}
+
 func TestApplyClaudeLegacyDeviceHeadersReplacesInvalidNativeSoftwareSignals(t *testing.T) {
 	request, errRequest := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
 	if errRequest != nil {
@@ -280,7 +322,7 @@ func TestResolveClaudeDeviceProfileRequiredHomeNormalizesUnmeasuredCachedProfile
 	})
 	useFakeClaudeDeviceProfileKVClient(t, client, true, nil)
 
-	profile, errProfile := ResolveClaudeDeviceProfileRequired(context.Background(), auth, "api-key", claudeDeviceHeaders("claude-cli/2.3.0 (external, cli)"), nil)
+	profile, errProfile := ResolveClaudeDeviceProfileRequired(context.Background(), auth, "api-key", claudeDeviceHeaders("claude-cli/2.1.220 (external, cli)"), nil)
 	if errProfile != nil {
 		t.Fatalf("ResolveClaudeDeviceProfileRequired() error = %v", errProfile)
 	}
@@ -313,6 +355,27 @@ func TestResolveClaudeDeviceProfileRequiredHomeFailures(t *testing.T) {
 				t.Fatalf("ResolveClaudeDeviceProfileRequired() error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestResolveClaudeDeviceProfilePinsNewerNativeEntrypointToBaseline(t *testing.T) {
+	ResetClaudeDeviceProfileCache()
+	client := newFakeClaudeDeviceProfileKVClient()
+	useFakeClaudeDeviceProfileKVClient(t, client, false, nil)
+	auth := &cliproxyauth.Auth{ID: "auth-newer-entrypoint"}
+	headers := claudeDeviceHeaders("claude-cli/2.1.270 (external, local-agent, agent-sdk/0.3.220)")
+	headers.Set("X-Stainless-Package-Version", "0.120.0")
+	headers.Set("X-Stainless-Runtime-Version", "v26.4.0")
+
+	profile, errProfile := ResolveClaudeDeviceProfileRequired(context.Background(), auth, "api-key", headers, nil)
+	if errProfile != nil {
+		t.Fatalf("ResolveClaudeDeviceProfileRequired() error = %v", errProfile)
+	}
+	if profile.UserAgent != "claude-cli/2.1.258 (external, local-agent, agent-sdk/0.3.220)" {
+		t.Fatalf("UserAgent = %q, want baseline version with local-agent entrypoint", profile.UserAgent)
+	}
+	if profile.PackageVersion != defaultClaudeFingerprintPackageVersion || profile.RuntimeVersion != defaultClaudeFingerprintRuntimeVersion {
+		t.Fatalf("software profile = %s/%s, want %s/%s", profile.PackageVersion, profile.RuntimeVersion, defaultClaudeFingerprintPackageVersion, defaultClaudeFingerprintRuntimeVersion)
 	}
 }
 

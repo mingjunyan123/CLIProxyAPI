@@ -59,6 +59,10 @@ type claudeCLIVersion struct {
 	patch int
 }
 
+func (v claudeCLIVersion) String() string {
+	return strconv.Itoa(v.major) + "." + strconv.Itoa(v.minor) + "." + strconv.Itoa(v.patch)
+}
+
 func (v claudeCLIVersion) Compare(other claudeCLIVersion) int {
 	switch {
 	case v.major != other.major:
@@ -213,7 +217,10 @@ func shouldUpgradeClaudeDeviceProfile(candidate, current ClaudeDeviceProfile) bo
 }
 
 func plausibleClaudeCLIVersion(candidate, baseline claudeCLIVersion) bool {
-	return candidate.Compare(baseline) == 0
+	// Native confirmation is a floor, not an exact match: Claude Code 2.1.259+
+	// still counts as a first-party client. Outbound software headers are pinned
+	// back to the measured baseline separately.
+	return candidate.Compare(baseline) >= 0
 }
 
 func meetsClaudeDeviceProfileBaseline(candidate, baseline ClaudeDeviceProfile) bool {
@@ -223,9 +230,55 @@ func meetsClaudeDeviceProfileBaseline(candidate, baseline ClaudeDeviceProfile) b
 	if baseline.UserAgent == "" || !baseline.hasVersion {
 		return false
 	}
-	return plausibleClaudeCLIVersion(candidate.version, baseline.version) &&
+	return candidate.version.Compare(baseline.version) == 0 &&
 		candidate.PackageVersion == baseline.PackageVersion &&
 		candidate.RuntimeVersion == baseline.RuntimeVersion
+}
+
+// meetsClaudeNativeSoftwareFloor reports whether a client is new enough to keep
+// native pass-through. Claude Code at the measured baseline still has to carry
+// that release's package and runtime; a newer CLI version is accepted even when
+// those SDK headers have moved, so a 2.1.259+ client is not cloaked.
+func meetsClaudeNativeSoftwareFloor(candidate, baseline ClaudeDeviceProfile) bool {
+	if candidate.UserAgent == "" || !candidate.hasVersion {
+		return false
+	}
+	if baseline.UserAgent == "" || !baseline.hasVersion {
+		return false
+	}
+	cmp := candidate.version.Compare(baseline.version)
+	if cmp < 0 {
+		return false
+	}
+	if cmp == 0 {
+		return candidate.PackageVersion == baseline.PackageVersion &&
+			candidate.RuntimeVersion == baseline.RuntimeVersion
+	}
+	return true
+}
+
+func pinClaudeCLIUserAgentVersion(userAgent string, version claudeCLIVersion) string {
+	userAgent = strings.TrimSpace(userAgent)
+	if userAgent == "" || !claudeCLIVersionPattern.MatchString(userAgent) {
+		return userAgent
+	}
+	return claudeCLIVersionPattern.ReplaceAllString(userAgent, "claude-cli/"+version.String())
+}
+
+func pinClaudeDeviceProfileSoftwareToBaseline(profile, baseline ClaudeDeviceProfile) ClaudeDeviceProfile {
+	if !baseline.hasVersion {
+		return profile
+	}
+	if profile.UserAgent != "" {
+		profile.UserAgent = pinClaudeCLIUserAgentVersion(profile.UserAgent, baseline.version)
+	} else {
+		profile.UserAgent = baseline.UserAgent
+	}
+	profile.PackageVersion = baseline.PackageVersion
+	profile.RuntimeVersion = baseline.RuntimeVersion
+	profile.version = baseline.version
+	profile.hasVersion = true
+	return profile
 }
 
 func pinClaudeDeviceProfilePlatform(profile, baseline ClaudeDeviceProfile) ClaudeDeviceProfile {
@@ -234,16 +287,14 @@ func pinClaudeDeviceProfilePlatform(profile, baseline ClaudeDeviceProfile) Claud
 	return profile
 }
 
-// normalizeClaudeDeviceProfile pins stabilized profiles to the configured platform
-// and replaces any software tuple that does not exactly match the measured baseline.
+// normalizeClaudeDeviceProfile pins stabilized profiles to the configured
+// platform and measured software baseline. Newer Claude Code User-Agents keep
+// their entrypoint and only have the version rewritten, so outbound stays on
+// the measured fingerprint instead of learning a newer client.
 func normalizeClaudeDeviceProfile(profile, baseline ClaudeDeviceProfile) ClaudeDeviceProfile {
 	profile = pinClaudeDeviceProfilePlatform(profile, baseline)
 	if !meetsClaudeDeviceProfileBaseline(profile, baseline) {
-		profile.UserAgent = baseline.UserAgent
-		profile.PackageVersion = baseline.PackageVersion
-		profile.RuntimeVersion = baseline.RuntimeVersion
-		profile.version = baseline.version
-		profile.hasVersion = baseline.hasVersion
+		profile = pinClaudeDeviceProfileSoftwareToBaseline(profile, baseline)
 	}
 	return profile
 }
@@ -385,9 +436,11 @@ func resolveClaudeDeviceProfileLocal(auth *cliproxyauth.Auth, apiKey string, hea
 	candidate, hasCandidate := extractClaudeDeviceProfile(headers, cfg)
 	if hasCandidate {
 		candidate = pinClaudeDeviceProfilePlatform(candidate, baseline)
-	}
-	if hasCandidate && !meetsClaudeDeviceProfileBaseline(candidate, baseline) {
-		hasCandidate = false
+		if !candidate.hasVersion || candidate.version.Compare(baseline.version) < 0 {
+			hasCandidate = false
+		} else {
+			candidate = pinClaudeDeviceProfileSoftwareToBaseline(candidate, baseline)
+		}
 	}
 	cacheProfile := ClaudeDeviceProfile{}
 	if hasCandidate {
@@ -447,9 +500,11 @@ func resolveClaudeDeviceProfileHome(ctx context.Context, client claudeDeviceProf
 	candidate, hasCandidate := extractClaudeDeviceProfile(headers, cfg)
 	if hasCandidate {
 		candidate = pinClaudeDeviceProfilePlatform(candidate, baseline)
-	}
-	if hasCandidate && !meetsClaudeDeviceProfileBaseline(candidate, baseline) {
-		hasCandidate = false
+		if !candidate.hasVersion || candidate.version.Compare(baseline.version) < 0 {
+			hasCandidate = false
+		} else {
+			candidate = pinClaudeDeviceProfileSoftwareToBaseline(candidate, baseline)
+		}
 	}
 
 	cacheProfile := ClaudeDeviceProfile{}
@@ -588,7 +643,7 @@ func ApplyClaudeDeviceProfileHeaders(r *http.Request, profile ClaudeDeviceProfil
 func DefaultClaudeVersion(cfg *config.Config) string {
 	profile := defaultClaudeDeviceProfile(cfg)
 	if version, ok := parseClaudeCLIVersion(profile.UserAgent); ok {
-		return strconv.Itoa(version.major) + "." + strconv.Itoa(version.minor) + "." + strconv.Itoa(version.patch)
+		return version.String()
 	}
 	return "2.1.258"
 }
@@ -635,7 +690,7 @@ func ApplyClaudeLegacyDeviceHeaders(r *http.Request, ginHeaders http.Header, cfg
 		miscEnsure("X-Stainless-Os", mapStainlessOS(), nil)
 		miscEnsure("X-Stainless-Arch", mapStainlessArch(), nil)
 		if clientUA := strings.TrimSpace(ginHeaders.Get("User-Agent")); plausibleClaudeCodeUserAgent(clientUA, cfg) {
-			r.Header.Set("User-Agent", clientUA)
+			r.Header.Set("User-Agent", pinClaudeCLIUserAgentVersion(clientUA, profile.version))
 			return
 		}
 	}
