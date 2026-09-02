@@ -178,6 +178,35 @@ func TestDetectClaudeCodeRequestClassifiesEntrypoints(t *testing.T) {
 	}
 }
 
+func TestDetectClaudeCodeRequestAdapterEntrypointsRequireBaselineVersion(t *testing.T) {
+	payload := claudeCodeDetectionPayload(validClaudeCodeMetadataUserID)
+	for _, test := range []struct {
+		name      string
+		userAgent string
+		want      bool
+	}{
+		{name: "local-agent 2.1.258", userAgent: "claude-cli/2.1.258 (external, local-agent, agent-sdk/0.3.220)", want: true},
+		{name: "desktop-3p 2.1.258", userAgent: "claude-cli/2.1.258 (external, claude-desktop-3p)", want: true},
+		{name: "local-agent 2.1.220", userAgent: "claude-cli/2.1.220 (external, local-agent, agent-sdk/0.3.220)"},
+		{name: "desktop-3p 2.1.220", userAgent: "claude-cli/2.1.220 (external, claude-desktop-3p)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			headers := confirmedClaudeCodeHeaders()
+			headers.Set("User-Agent", test.userAgent)
+			detection := DetectClaudeCodeRequest(headers, payload, false)
+			if detection.Confirmed != test.want {
+				t.Fatalf("Confirmed = %v, want %v: %#v", detection.Confirmed, test.want, detection)
+			}
+			if detection.NativeClient != true {
+				t.Fatalf("NativeClient = false, want adapter entrypoint still classified native: %#v", detection)
+			}
+			if detection.UserAgent != test.want {
+				t.Fatalf("UserAgent signal = %v, want %v against the 2.1.258 baseline", detection.UserAgent, test.want)
+			}
+		})
+	}
+}
+
 func TestDetectClaudeCodeCountTokensAllowsMissingMetadata(t *testing.T) {
 	headers := confirmedClaudeCodeHeaders()
 	headers.Set("User-Agent", "claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)")
