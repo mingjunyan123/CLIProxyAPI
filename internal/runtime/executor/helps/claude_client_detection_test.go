@@ -489,7 +489,7 @@ func TestDetectClaudeCodeRequestRejectsHelperWithForeignSoftwareTuple(t *testing
 }
 
 func TestDetectClaudeCodeRequestAcceptsNewerThanBaselineHelper(t *testing.T) {
-	headers := measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true))
+	headers := measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true), false)
 	headers.Set("User-Agent", "claude-cli/2.1.270 (external, cli)")
 	headers.Set("X-Stainless-Package-Version", "0.120.0")
 	headers.Set("X-Stainless-Runtime-Version", "v26.4.0")
