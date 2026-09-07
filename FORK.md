@@ -2,13 +2,25 @@
 
 This repository tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and keeps a small set of local changes.
 
-Compared at `main` against upstream `main`. Protocol translation, thinking suffixes, cloaking algorithms, rate-limit handling, and credential `device_id` selection match upstream.
+Protocol translation, thinking suffixes, cloaking algorithms, and rate-limit handling match upstream. Cloak vs pass-through is decided by native-client detection; this fork only widens that detection.
+
+Fork-only code lives in dedicated files where possible. Upstream files keep a short hook so the next rebase does not replay the whole feature.
+
+| Feature | Dedicated files | Remaining hook in an upstream file |
+|---|---|---|
+| Adapter native entrypoints | `helps/claude_adapter_compat.go` | one `\|\|` in `claude_client_detection.go` |
+| Claude OAuth outbound logs | `helps/claude_oauth_request_log.go` | one call in `logging_helpers.go`; inbound skip in `request_logging.go`; config field |
+| GHCR image | `.github/workflows/ghcr-image.yml` | none |
+| Native version floor / UA pin | — | `claude_device_profile.go`, helper check in `claude_client_detection.go` |
+| Model-free CAIS signatures (pending data) | extra tests in `internal/signature/claude_test.go` | `claude_validation.go`, `provider_compatibility.go`, warn in `claude_executor.go` |
 
 ## Claude native pass-through
 
 Upstream treats only `cli`, `sdk-cli`, and `claude-vscode` as native Claude Code surfaces.
 
-This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent, Anthropic-Beta, and `metadata.user_id` except on `count_tokens`).
+This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent at or above the measured baseline, `claude-code-20250219` in Anthropic-Beta, and `metadata.user_id` except on `count_tokens`).
+
+Native confirmation is a **version floor**, not an exact match: `claude-cli/2.1.259+` still counts. Outbound User-Agent / package / runtime are pinned back to the measured baseline (`2.1.258` / `0.112.1`).
 
 For those confirmed requests, cliproxyapi does **not** cloak the body into a CLI shape. It keeps:
 
@@ -36,15 +48,19 @@ Two logging knobs differ from upstream.
 `request-log: true`
 
 - Inbound HTTP capture is skipped.
-- Only **Claude OAuth outbound** request payloads are written, under `logs/claude-oauth/<account>/`.
+- Only **Claude OAuth outbound** request payloads are written.
 
 `claude-oauth-outbound-log: true`
 
 - Independent of `request-log`.
-- Writes the same Claude OAuth outbound payloads as gzip files, without buffering the full request-log pipeline.
+- Writes the same Claude OAuth outbound payloads as gzip, without buffering the full request-log pipeline.
 - Default is `false` (`config.example.yaml`).
 
-API-key Claude traffic and non-Claude providers are not covered by these outbound files.
+Files go under `logs/claude-oauth/<account>/` as gzip, named `{entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz` (for example `cli-20260907-095330.425323.gz`). `less` can open them. API-key Claude traffic and non-Claude providers are not written there.
+
+## Signatures
+
+Model-free CAIS thinking signatures (Fable 5.1 generation) are still in the tree versus upstream. Keep or drop after looking at traffic; this is not a decided fork difference yet.
 
 ## Container image
 

@@ -7,8 +7,6 @@ import (
 	"html"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -69,37 +67,15 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 		return
 	}
 	ginCtx := ginContextFrom(ctx)
-	lightweightOutboundLog := cfg.ClaudeOAuthOutboundLog && shouldWriteClaudeOAuthOutboundLog(info)
-	lightweightOutboundCaptured := false
-	if lightweightOutboundLog {
-		index := len(getAttempts(ginCtx)) + 1
-		if errWrite := writeLightweightClaudeOAuthOutboundLog(ctx, cfg, info, index); errWrite != nil {
-			log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
-		} else {
-			lightweightOutboundCaptured = true
-		}
-	}
+	captured := captureClaudeOAuthOutboundRequest(cfg, info, ginCtx)
 	if cfg.CommercialMode {
 		return
-	}
-	if cfg.RequestLog && !cfg.ClaudeOAuthOutboundLog && shouldWriteClaudeOAuthOutboundLog(info) {
-		index := len(getAttempts(ginCtx)) + 1
-		builder := newAPIRequestLogBuilder(index, info, time.Now())
-		if len(info.Body) > 0 {
-			builder.Write(info.Body)
-		} else {
-			builder.WriteString("<empty>")
-		}
-		builder.WriteString("\n\n")
-		if errWrite := writeClaudeOAuthOutboundLog(ctx, cfg, info, []byte(builder.String())); errWrite != nil {
-			log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
-		}
 	}
 	if ginCtx == nil {
 		return
 	}
 	if !cfg.RequestLog {
-		if !lightweightOutboundCaptured {
+		if !captured {
 			deferAPIRequest(ginCtx, info)
 		}
 		return
@@ -153,86 +129,6 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 	if requestText != "" {
 		updateAggregatedRequest(ginCtx, attempts)
 	}
-}
-
-func shouldWriteClaudeOAuthOutboundLog(info UpstreamRequestLog) bool {
-	return strings.EqualFold(strings.TrimSpace(info.Provider), "claude") &&
-		strings.EqualFold(strings.TrimSpace(info.AuthType), "oauth")
-}
-
-func writeClaudeOAuthOutboundLog(ctx context.Context, cfg *config.Config, info UpstreamRequestLog, payload []byte) error {
-	if len(payload) == 0 {
-		return nil
-	}
-	account := strings.TrimSpace(info.AuthValue)
-	if account == "" {
-		account = strings.TrimSpace(info.AuthID)
-	}
-	if account == "" {
-		account = "unknown-account"
-	}
-
-	logDir := filepath.Join(logging.ResolveLogDirectory(cfg), "claude-oauth", sanitizeLogPathPart(account))
-	if errMkdir := os.MkdirAll(logDir, 0755); errMkdir != nil {
-		return fmt.Errorf("create claude oauth request log dir: %w", errMkdir)
-	}
-
-	filePath := filepath.Join(logDir, outboundRequestLogFilename(ctx, info))
-	if errWrite := os.WriteFile(filePath, payload, 0644); errWrite != nil {
-		return fmt.Errorf("write claude oauth request log: %w", errWrite)
-	}
-	return nil
-}
-
-func outboundRequestLogFilename(ctx context.Context, info UpstreamRequestLog) string {
-	requestID := logging.GetRequestID(ctx)
-	if requestID == "" {
-		requestID = logging.GenerateRequestID()
-	}
-	pathPart := "root"
-	if parsed, errParse := url.Parse(strings.TrimSpace(info.URL)); errParse == nil {
-		pathPart = strings.Trim(parsed.Path, "/")
-	} else if trimmed := strings.TrimSpace(info.URL); trimmed != "" {
-		pathPart = trimmed
-	}
-	if pathPart == "" {
-		pathPart = "root"
-	}
-	timestamp := time.Now().Format("2006-01-02T150405.000000000")
-	return fmt.Sprintf("api-request-%s-%s-%s.log", sanitizeLogPathPart(pathPart), timestamp, sanitizeLogPathPart(requestID))
-}
-
-func sanitizeLogPathPart(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unknown"
-	}
-	var builder strings.Builder
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z':
-			builder.WriteRune(r)
-		case r >= 'A' && r <= 'Z':
-			builder.WriteRune(r)
-		case r >= '0' && r <= '9':
-			builder.WriteRune(r)
-		case r == '.', r == '-', r == '_':
-			builder.WriteRune(r)
-		default:
-			builder.WriteByte('-')
-		}
-	}
-	out := strings.Trim(builder.String(), ".-_")
-	if out == "" {
-		return "unknown"
-	}
-	if len(out) > 120 {
-		out = strings.Trim(out[:120], ".-_")
-		if out == "" {
-			return "unknown"
-		}
-	}
-	return out
 }
 
 func deferAPIRequest(ginCtx *gin.Context, info UpstreamRequestLog) {
