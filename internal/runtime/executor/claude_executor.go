@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	sigcompat "github.com/router-for-me/CLIProxyAPI/v7/internal/signature"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	sigcompat "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -111,52 +111,6 @@ func logClaudeSignatureSanitizeReport(ctx context.Context, baseModel string, rep
 		return
 	}
 
-	logger := helps.LogWithRequestID(ctx)
-	type unknownGenerationDrop struct {
-		reason           string
-		firstOccurrence  string
-		blockKind        sigcompat.SignatureBlockKind
-		detectedProvider sigcompat.SignatureProvider
-		signatureAction  sigcompat.SignatureCompatibilityAction
-		count            int
-	}
-	var unknownGenerationDrops []unknownGenerationDrop
-	unknownGenerationDropIndex := make(map[string]int)
-	for _, decision := range report.Decisions {
-		reason, ok := sigcompat.ClassifyUnknownCAISGeneration(decision.Reason)
-		if !ok {
-			continue
-		}
-		if index, ok := unknownGenerationDropIndex[reason]; ok {
-			unknownGenerationDrops[index].count++
-			continue
-		}
-		unknownGenerationDropIndex[reason] = len(unknownGenerationDrops)
-		unknownGenerationDrops = append(unknownGenerationDrops, unknownGenerationDrop{
-			reason:           reason,
-			firstOccurrence:  decision.Reason,
-			blockKind:        decision.BlockKind,
-			detectedProvider: decision.DetectedProvider,
-			signatureAction:  decision.Action,
-			count:            1,
-		})
-	}
-	for _, drop := range unknownGenerationDrops {
-		logger.WithFields(log.Fields{
-			"component":           "signature_sanitizer",
-			"executor":            "claude",
-			"action":              "drop_unknown_claude_cais_generation",
-			"target_provider":     string(report.TargetProvider),
-			"target_model":        baseModel,
-			"block_kind":          string(drop.blockKind),
-			"detected_provider":   string(drop.detectedProvider),
-			"signature_action":    string(drop.signatureAction),
-			"reason":              drop.reason,
-			"first_occurrence":    drop.firstOccurrence,
-			"dropped_block_count": drop.count,
-		}).Warn("claude executor: dropped signed history for unknown CAIS generation")
-	}
-
 	fields := log.Fields{
 		"component":           "signature_sanitizer",
 		"executor":            "claude",
@@ -175,7 +129,7 @@ func logClaudeSignatureSanitizeReport(ctx context.Context, baseModel string, rep
 		fields["first_reason"] = decision.Reason
 	}
 
-	logger.WithFields(fields).Debug("claude executor: sanitized signature history before upstream")
+	helps.LogWithRequestID(ctx).WithFields(fields).Debug("claude executor: sanitized signature history before upstream")
 }
 
 // Anthropic-compatible upstreams may reject or even crash when Claude models
@@ -185,6 +139,10 @@ const defaultModelMaxTokens = 1024
 func NewClaudeExecutor(cfg *config.Config) *ClaudeExecutor { return &ClaudeExecutor{cfg: cfg} }
 
 func (e *ClaudeExecutor) Identifier() string { return "claude" }
+
+func (e *ClaudeExecutor) modelLevelCooling() bool {
+	return e != nil && e.cfg != nil && e.cfg.Claude.ModelLevelCooling
+}
 
 func (e *ClaudeExecutor) upstreamRequestLogProvider() string {
 	if provider := strings.TrimSpace(e.requestLogProvider); provider != "" {

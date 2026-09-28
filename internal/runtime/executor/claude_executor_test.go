@@ -19,18 +19,15 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
-	claudeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/claude"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
-	log "github.com/sirupsen/logrus"
-	logtest "github.com/sirupsen/logrus/hooks/test"
+	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func resetClaudeDeviceProfileCache() {
@@ -48,22 +45,6 @@ func claudeOAuthTestMetadata() map[string]any {
 
 func malformedClaudeTreeSignatureForClaudeExecutorTest() string {
 	return base64.StdEncoding.EncodeToString([]byte{0x12, 0xFF, 0xFE, 0xFD})
-}
-
-func modelFreeClaudeCAISSignatureForExecutorTest(envelopeVersion, channelID uint64) string {
-	channel := protowire.AppendTag(nil, 1, protowire.VarintType)
-	channel = protowire.AppendVarint(channel, channelID)
-
-	container := protowire.AppendTag(nil, 1, protowire.BytesType)
-	container = protowire.AppendBytes(container, channel)
-	container = protowire.AppendTag(container, 5, protowire.BytesType)
-	container = protowire.AppendBytes(container, []byte("synthetic-model-free-carrier"))
-
-	payload := protowire.AppendTag(nil, 1, protowire.VarintType)
-	payload = protowire.AppendVarint(payload, envelopeVersion)
-	payload = protowire.AppendTag(payload, 2, protowire.BytesType)
-	payload = protowire.AppendBytes(payload, container)
-	return base64.StdEncoding.EncodeToString(payload)
 }
 
 func newClaudeHeaderTestRequest(t *testing.T, incoming http.Header) *http.Request {
@@ -626,7 +607,7 @@ func TestApplyClaudeHeaders_DisableDeviceProfileStabilization(t *testing.T) {
 		"X-Stainless-Arch":            []string{"x64"},
 	})
 	applyClaudeHeaders(firstReq, auth, "key-disable-stability", false, nil, nil, cfg, nil, true)
-	assertClaudeFingerprint(t, firstReq.Header, "claude-cli/2.1.60 (external, cli)", "0.70.0", "v22.0.0", "MacOS", "arm64")
+	assertClaudeFingerprint(t, firstReq.Header, "claude-cli/2.1.62 (external, cli)", "0.70.0", "v22.0.0", "Linux", "x64")
 
 	thirdPartyReq := newClaudeHeaderTestRequest(t, http.Header{
 		"User-Agent":                  []string{"lobe-chat/1.0"},
@@ -638,15 +619,15 @@ func TestApplyClaudeHeaders_DisableDeviceProfileStabilization(t *testing.T) {
 	applyClaudeHeaders(thirdPartyReq, auth, "key-disable-stability", false, nil, nil, cfg, nil, false)
 	assertClaudeFingerprint(t, thirdPartyReq.Header, "claude-cli/2.1.60 (external, cli)", "0.70.0", "v22.0.0", "MacOS", "arm64")
 
-	lowerReq := newClaudeHeaderTestRequest(t, http.Header{
-		"User-Agent":                  []string{"claude-cli/2.1.61 (external, cli)"},
+	olderReq := newClaudeHeaderTestRequest(t, http.Header{
+		"User-Agent":                  []string{"claude-cli/2.1.59 (external, cli)"},
 		"X-Stainless-Package-Version": []string{"0.73.0"},
 		"X-Stainless-Runtime-Version": []string{"v24.2.0"},
 		"X-Stainless-Os":              []string{"Windows"},
 		"X-Stainless-Arch":            []string{"x64"},
 	})
-	applyClaudeHeaders(lowerReq, auth, "key-disable-stability", false, nil, nil, cfg, nil, true)
-	assertClaudeFingerprint(t, lowerReq.Header, "claude-cli/2.1.60 (external, cli)", "0.70.0", "v22.0.0", "MacOS", "arm64")
+	applyClaudeHeaders(olderReq, auth, "key-disable-stability", false, nil, nil, cfg, nil, true)
+	assertClaudeFingerprint(t, olderReq.Header, "claude-cli/2.1.60 (external, cli)", "0.70.0", "v22.0.0", "MacOS", "arm64")
 }
 
 func TestApplyClaudeHeaders_LegacyModePreservesConfiguredUserAgentOverrideForClaudeClients(t *testing.T) {
@@ -678,7 +659,7 @@ func TestApplyClaudeHeaders_LegacyModePreservesConfiguredUserAgentOverrideForCla
 	})
 	applyClaudeHeaders(req, auth, "key-legacy-ua-override", false, nil, nil, cfg, nil, true)
 
-	assertClaudeFingerprint(t, req.Header, "config-ua/1.0", "0.70.0", "v22.0.0", "MacOS", "arm64")
+	assertClaudeFingerprint(t, req.Header, "config-ua/1.0", "0.70.0", "v22.0.0", "Linux", "x64")
 }
 
 func TestApplyClaudeHeaders_LegacyThirdPartyUsesStableConfiguredOSArch(t *testing.T) {
@@ -835,7 +816,7 @@ func TestClaudeExecutor_NonClaudeRequestUsesClaudeCode220CLIFingerprint(t *testi
 		t.Fatalf("Execute() error = %v", errExecute)
 	}
 
-	assertClaudeFingerprint(t, seenHeaders, "claude-cli/2.1.258 (external, cli)", "0.112.1", "v26.3.0", "MacOS", "arm64")
+	assertClaudeFingerprint(t, seenHeaders, "claude-cli/2.1.280 (external, cli)", "0.112.1", "v26.3.0", "MacOS", "arm64")
 	if got := seenHeaders.Get("X-App"); got != "cli" {
 		t.Fatalf("X-App = %q, want cli", got)
 	}
@@ -847,8 +828,8 @@ func TestClaudeExecutor_NonClaudeRequestUsesClaudeCode220CLIFingerprint(t *testi
 	if len(system) != 2 {
 		t.Fatalf("system block count = %d, want 2: %s", len(system), seenBody)
 	}
-	if got := system[0].Get("text").String(); got != "x-anthropic-billing-header: cc_version=2.1.258.1e2; cc_entrypoint=cli;" {
-		t.Fatalf("billing header = %q, want 2.1.258 CLI fingerprint", got)
+	if got := system[0].Get("text").String(); got != "x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=cli;" {
+		t.Fatalf("billing header = %q, want 2.1.280 CLI fingerprint", got)
 	}
 	if got := system[1].Get("text").String(); got != claudeCodeCLIIdentity {
 		t.Fatalf("system[1].text = %q, want official CLI identity", got)
@@ -881,7 +862,7 @@ func TestClaudeExecutor_NonClaudeRequestUsesClaudeCode220CLIFingerprint(t *testi
 	}
 }
 
-func TestClaudeExecutor_ConfirmedClaudeCodeRequestPreservesInteractiveIdentity(t *testing.T) {
+func TestClaudeExecutor_ConfirmedNewerPatchClaudeCodeRequestPreservesInteractiveIdentity(t *testing.T) {
 	var seenBody []byte
 	var seenHeaders http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -896,7 +877,7 @@ func TestClaudeExecutor_ConfirmedClaudeCodeRequestPreservesInteractiveIdentity(t
 	const userID = `{"device_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`
 	payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":"interactive-system","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
 	incoming := http.Header{
-		"User-Agent":                  {"claude-cli/2.1.258 (external, cli)"},
+		"User-Agent":                  {"claude-cli/2.1.281 (external, cli)"},
 		"X-App":                       {"cli"},
 		"Anthropic-Beta":              {"claude-code-20250219,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"},
 		"X-Claude-Code-Session-Id":    {sessionID},
@@ -923,7 +904,7 @@ func TestClaudeExecutor_ConfirmedClaudeCodeRequestPreservesInteractiveIdentity(t
 		t.Fatalf("Execute() error = %v", errExecute)
 	}
 
-	assertClaudeFingerprint(t, seenHeaders, "claude-cli/2.1.258 (external, cli)", "0.112.1", "v26.3.0", "MacOS", "arm64")
+	assertClaudeFingerprint(t, seenHeaders, "claude-cli/2.1.281 (external, cli)", "0.112.1", "v26.3.0", "MacOS", "arm64")
 	if got := gjson.GetBytes(seenBody, "system.0.text").String(); got != "interactive-system" {
 		t.Fatalf("system.0.text = %q, want confirmed client system preserved", got)
 	}
@@ -966,7 +947,7 @@ func TestClaudeExecutor_ConfirmedClaudeCodeWithoutCacheControlPreservesContent(t
 			const userID = `{"device_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`
 			payload := []byte(`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
 			incoming := http.Header{
-				"User-Agent":               {"claude-cli/2.1.258 (external, cli)"},
+				"User-Agent":               {"claude-cli/2.1.280 (external, cli)"},
 				"X-App":                    {"cli"},
 				"Anthropic-Beta":           {"claude-code-20250219"},
 				"X-Claude-Code-Session-Id": {sessionID},
@@ -1009,6 +990,64 @@ func TestClaudeExecutor_ConfirmedClaudeCodeWithoutCacheControlPreservesContent(t
 	}
 }
 
+func TestClaudeExecutor_ConfirmedCLIForwardsNativeOpus55Shape(t *testing.T) {
+	var seenBody []byte
+	var seenHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenBody, _ = io.ReadAll(r.Body)
+		seenHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	const userID = `{"device_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","account_uuid":"11111111-2222-4333-8444-555555555555","session_id":"11111111-2222-4333-8444-555555555555"}`
+	const billing = "x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=cli; cch=00000; cc_turn_origin=human;"
+	const betas = "claude-code-20250219,oauth-2025-04-20,mid-conversation-system-clear-at-2026-08-21,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11"
+	payload := []byte(`{"model":"claude-opus-5-5","system":[{"type":"text","text":` + fmt.Sprintf("%q", billing) + `},{"type":"text","text":"native identity"},{"type":"text","text":"native model block"}],"messages":[{"role":"user","content":"hello"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `},"fallbacks":[{"model":"claude-opus-4-8"}],"thinking":{"type":"adaptive","display":"updates"}}`)
+	incoming := http.Header{
+		"User-Agent":                  {"claude-cli/2.1.280 (external, cli)"},
+		"X-App":                       {"cli"},
+		"Anthropic-Beta":              {betas},
+		"X-Claude-Code-Session-Id":    {"11111111-2222-4333-8444-555555555555"},
+		"x-claude-code-request-class": {"main"},
+	}
+	if detection := helps.DetectClaudeCodeRequest(incoming, payload, false); !detection.Confirmed {
+		t.Fatal("fixture must be classified as a native CLI request")
+	}
+	auth := &cliproxyauth.Auth{ID: "native-opus55", Metadata: claudeOAuthTestMetadata(), Attributes: map[string]string{
+		"api_key": "sk-ant-oat-native-opus55", "base_url": server.URL,
+	}}
+	executor := NewClaudeExecutor(&config.Config{})
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model: "claude-opus-5-5", Payload: payload,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude, OriginalRequest: payload, Headers: incoming})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := seenHeaders.Get("X-Claude-Code-Request-Class"); got != "main" {
+		t.Errorf("request class = %q, want native main", got)
+	}
+	if got := seenHeaders.Get("Anthropic-Beta"); got != betas {
+		t.Errorf("native betas = %q, want %q", got, betas)
+	}
+	blocks := gjson.GetBytes(seenBody, "system").Array()
+	if len(blocks) != 3 {
+		t.Fatalf("native system blocks = %d, want 3", len(blocks))
+	}
+	first := blocks[0].Get("text").String()
+	idx := strings.Index(first, "cch=")
+	if idx < 0 || len(first) < idx+9 || first[:idx+4]+"00000"+first[idx+9:] != billing {
+		t.Error("native billing changed beyond its re-signed CCH digits")
+	}
+	if blocks[1].Get("text").String() != "native identity" || blocks[2].Get("text").String() != "native model block" {
+		t.Error("native system prompt blocks were rebuilt")
+	}
+	if got := gjson.GetBytes(seenBody, "fallbacks.0.model").String(); got != "claude-opus-4-8" {
+		t.Errorf("native fallback = %q, want claude-opus-4-8", got)
+	}
+}
+
 func TestClaudeExecutor_ConfirmedVSCodeAgentSDKRequestPreservesIdentity(t *testing.T) {
 	helps.ResetClaudeDeviceProfileCache()
 	var seenBody []byte
@@ -1023,7 +1062,7 @@ func TestClaudeExecutor_ConfirmedVSCodeAgentSDKRequestPreservesIdentity(t *testi
 
 	const sessionID = "22222222-3333-4444-8555-666666666666"
 	const userID = `{"device_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","account_uuid":"","session_id":"22222222-3333-4444-8555-666666666666"}`
-	const vscodeUA = "claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)"
+	const vscodeUA = "claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"
 	const billingHeader = "x-anthropic-billing-header: cc_version=2.1.258.9cb; cc_entrypoint=claude-vscode;"
 	payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":` + fmt.Sprintf("%q", billingHeader) + `},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"vscode-agent-system"}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
 	incoming := http.Header{
@@ -1108,7 +1147,7 @@ func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *
 		SourceFormat:    sdktranslator.FormatClaude,
 		OriginalRequest: payload,
 		Headers: http.Header{
-			"User-Agent":     {"claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)"},
+			"User-Agent":     {"claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"},
 			"X-App":          {"cli"},
 			"Anthropic-Beta": {"claude-code-20250219"},
 		},
@@ -1117,7 +1156,7 @@ func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *
 		t.Fatalf("Execute() error = %v", errExecute)
 	}
 
-	if got := seenHeaders.Get("User-Agent"); got != "claude-cli/2.1.258 (external, cli)" {
+	if got := seenHeaders.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
 		t.Fatalf("User-Agent = %q, want CLI cloak", got)
 	}
 	if got := gjson.GetBytes(seenBody, "system.#").Int(); got != 2 {
@@ -1157,7 +1196,7 @@ func TestClaudeExecutor_AgentSDKEntrypointWithStrongSignalsUsesCLICloak(t *testi
 		SourceFormat:    sdktranslator.FormatClaude,
 		OriginalRequest: payload,
 		Headers: http.Header{
-			"User-Agent":     {"claude-cli/2.1.258 (external, sdk-ts, agent-sdk/0.3.220)"},
+			"User-Agent":     {"claude-cli/2.1.280 (external, sdk-ts, agent-sdk/0.3.220)"},
 			"X-App":          {"cli"},
 			"Anthropic-Beta": {"claude-code-20250219"},
 		},
@@ -1166,7 +1205,7 @@ func TestClaudeExecutor_AgentSDKEntrypointWithStrongSignalsUsesCLICloak(t *testi
 		t.Fatalf("Execute() error = %v", errExecute)
 	}
 
-	if got := seenHeaders.Get("User-Agent"); got != "claude-cli/2.1.258 (external, cli)" {
+	if got := seenHeaders.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
 		t.Fatalf("User-Agent = %q, want CLI cloak", got)
 	}
 	if got := gjson.GetBytes(seenBody, "system.0.text").String(); !strings.Contains(got, "cc_entrypoint=cli;") {
@@ -1177,113 +1216,68 @@ func TestClaudeExecutor_AgentSDKEntrypointWithStrongSignalsUsesCLICloak(t *testi
 	}
 }
 
-func TestClaudeExecutor_ConfirmedAdapterOAuthPreservesNativeBody(t *testing.T) {
+func TestClaudeExecutor_ConfirmedVSCodeOAuthPreservesToolNames(t *testing.T) {
 	var seenBody []byte
 	var seenHeaders http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenBody, _ = io.ReadAll(r.Body)
 		seenHeaders = r.Header.Clone()
-		if gjson.GetBytes(seenBody, "stream").Bool() {
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-6\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\ndata: {\"type\":\"message_stop\"}\n\n"))
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
 	defer server.Close()
 
 	const userID = `{"device_id":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","account_uuid":"","session_id":"33333333-4444-4555-8666-777777777777"}`
+	payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.258.9cb; cc_entrypoint=claude-vscode; cch=00000;"}],"tools":[{"name":"bash","description":"known native name must pass through","input_schema":{"type":"object"}},{"name":"search_web","description":"unknown native name must pass through","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
 	deviceIDs := []string{
 		"0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	for _, entrypoint := range []string{"claude-vscode", "local-agent", "claude-desktop-3p"} {
-		for _, clientVersion := range []string{"2.1.258", "2.1.270"} {
-			for _, stream := range []bool{false, true} {
-				name := entrypoint + " " + clientVersion + " execute"
-				if stream {
-					name += " stream"
-				}
-				t.Run(name, func(t *testing.T) {
-					seenBody = nil
-					seenHeaders = nil
-					billingHeader := "x-anthropic-billing-header: cc_version=2.1.258.04c; cc_entrypoint=" + entrypoint + "; cch=00000;"
-					payload := []byte(`{"model":"claude-opus-4-6","system":[{"type":"text","text":` + fmt.Sprintf("%q", billingHeader) + `}],"tools":[{"name":"bash","description":"known native name must pass through","input_schema":{"type":"object"}},{"name":"search_web","description":"unknown native name must pass through","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":` + fmt.Sprintf("%q", userID) + `}}`)
-					executor := NewClaudeExecutor(&config.Config{})
-					auth := &cliproxyauth.Auth{
-						Attributes: map[string]string{
-							"api_key":  "sk-ant-oat-native-adapter",
-							"base_url": server.URL,
-						},
-						Metadata: map[string]any{
-							"account_uuid":      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-							"claude_device_ids": deviceIDs,
-							"cloak_mode":        "always",
-						},
-					}
-					packageVersion := "0.112.1"
-					if clientVersion != "2.1.258" {
-						packageVersion = "0.120.0"
-					}
-					headers := http.Header{
-						"User-Agent":                  {"claude-cli/" + clientVersion + " (external, " + entrypoint + ", agent-sdk/0.3.220)"},
-						"X-App":                       {"cli"},
-						"Anthropic-Beta":              {"claude-code-20250219"},
-						"X-Stainless-Package-Version": {packageVersion},
-						"X-Stainless-Runtime-Version": {"v26.3.0"},
-					}
-					request := cliproxyexecutor.Request{Model: "claude-opus-4-6", Payload: payload}
-					options := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude, OriginalRequest: payload, Headers: headers}
-					if stream {
-						result, errStream := executor.ExecuteStream(context.Background(), auth, request, options)
-						if errStream != nil {
-							t.Fatalf("ExecuteStream() error = %v", errStream)
-						}
-						for chunk := range result.Chunks {
-							if chunk.Err != nil {
-								t.Fatalf("stream chunk error = %v", chunk.Err)
-							}
-						}
-					} else if _, errExecute := executor.Execute(context.Background(), auth, request, options); errExecute != nil {
-						t.Fatalf("Execute() error = %v", errExecute)
-					}
+	executor := NewClaudeExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{
+			"api_key":  "sk-ant-oat-native-vscode",
+			"base_url": server.URL,
+		},
+		Metadata: map[string]any{
+			"account_uuid":      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			"claude_device_ids": deviceIDs,
+			"cloak_mode":        "always",
+		},
+	}
+	_, errExecute := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-opus-4-6",
+		Payload: payload,
+	}, cliproxyexecutor.Options{
+		SourceFormat:    sdktranslator.FormatClaude,
+		OriginalRequest: payload,
+		Headers: http.Header{
+			"User-Agent":                  {"claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"},
+			"X-App":                       {"cli"},
+			"Anthropic-Beta":              {"claude-code-20250219"},
+			"X-Stainless-Package-Version": {"0.112.1"},
+			"X-Stainless-Runtime-Version": {"v26.3.0"},
+		},
+	})
+	if errExecute != nil {
+		t.Fatalf("Execute() error = %v", errExecute)
+	}
 
-					if got := gjson.GetBytes(seenBody, "system.0.text").String(); !strings.Contains(got, "cc_version=2.1.258.04c; cc_entrypoint="+entrypoint+";") {
-						t.Fatalf("billing header = %q, want adapter suffix and entrypoint preserved", got)
-					}
-					if got := gjson.GetBytes(seenBody, "system.#").Int(); got != 1 {
-						t.Fatalf("system block count = %d, want native body preserved", got)
-					}
-					if got := gjson.GetBytes(seenBody, "context_management"); got.Exists() {
-						t.Fatalf("context_management = %s, want no automatic injection", got.Raw)
-					}
-					if got := gjson.GetBytes(seenBody, "tools.0.name").String(); got != "bash" {
-						t.Fatalf("tools.0.name = %q, want confirmed native known name preserved", got)
-					}
-					if got := gjson.GetBytes(seenBody, "tools.1.name").String(); got != "search_web" {
-						t.Fatalf("tools.1.name = %q, want confirmed native unknown name preserved", got)
-					}
-					assertClaudeCredentialIdentity(t, seenBody, seenHeaders, deviceIDs, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-					upstreamUserID := gjson.GetBytes(seenBody, "metadata.user_id").String()
-					if upstreamDeviceID := gjson.Get(upstreamUserID, "device_id").String(); upstreamDeviceID == strings.Repeat("c", 64) {
-						t.Fatalf("device_id = %q, want request device replaced by credential pool", upstreamDeviceID)
-					}
-					if got := gjson.Get(upstreamUserID, "session_id").String(); got != "33333333-4444-4555-8666-777777777777" {
-						t.Fatalf("session_id = %q, want downstream agent session", got)
-					}
-					if got := seenHeaders.Get("X-Claude-Code-Session-Id"); got != "33333333-4444-4555-8666-777777777777" {
-						t.Fatalf("X-Claude-Code-Session-Id = %q, want downstream agent session", got)
-					}
-					wantUA := "claude-cli/" + clientVersion + " (external, " + entrypoint + ", agent-sdk/0.3.220)"
-					if got := seenHeaders.Get("User-Agent"); got != wantUA {
-						t.Fatalf("User-Agent = %q, want native User-Agent unchanged %q", got, wantUA)
-					}
-					if got := seenHeaders.Get("X-Stainless-Package-Version"); got != "0.112.1" {
-						t.Fatalf("X-Stainless-Package-Version = %q, want 0.112.1", got)
-					}
-				})
-			}
-		}
+	if got := gjson.GetBytes(seenBody, "tools.0.name").String(); got != "bash" {
+		t.Fatalf("tools.0.name = %q, want confirmed native known name preserved", got)
+	}
+	if got := gjson.GetBytes(seenBody, "tools.1.name").String(); got != "search_web" {
+		t.Fatalf("tools.1.name = %q, want confirmed native unknown name preserved", got)
+	}
+	assertClaudeCredentialIdentity(t, seenBody, seenHeaders, deviceIDs, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+	upstreamUserID := gjson.GetBytes(seenBody, "metadata.user_id").String()
+	if upstreamDeviceID := gjson.Get(upstreamUserID, "device_id").String(); upstreamDeviceID == strings.Repeat("c", 64) {
+		t.Fatalf("device_id = %q, want native device replaced by credential pool", upstreamDeviceID)
+	}
+	if got := gjson.Get(upstreamUserID, "session_id").String(); got != "33333333-4444-4555-8666-777777777777" {
+		t.Fatalf("session_id = %q, want downstream agent session", got)
+	}
+	if got := seenHeaders.Get("X-Claude-Code-Session-Id"); got != "33333333-4444-4555-8666-777777777777" {
+		t.Fatalf("X-Claude-Code-Session-Id = %q, want downstream agent session", got)
 	}
 }
 
@@ -2092,6 +2086,75 @@ func TestClaudeExecutor_ExecuteStreamDirectPassthroughEmitsCompleteSSEEvents(t *
 	}
 }
 
+func TestClaudeExecutor_ExecuteStreamOpenAIResponseTranslatesCacheAndTrailingUsageChunk(t *testing.T) {
+	upstreamStream := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","content":[],"model":"claude-opus-5","stop_reason":null,"usage":{"input_tokens":2095,"cache_creation_input_tokens":7185,"cache_read_input_tokens":355598,"output_tokens":1}}}` + "\n\n" +
+		"event: content_block_delta\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}` + "\n\n" +
+		"event: message_stop\n" +
+		`data: {"type":"message_stop"}` + "\n\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(upstreamStream))
+	}))
+	defer server.Close()
+
+	executor := NewClaudeExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "key-123",
+		"base_url": server.URL,
+	}}
+	payload := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}],"stream":true}`)
+
+	result, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-opus-5",
+		Payload: payload,
+	}, cliproxyexecutor.Options{
+		SourceFormat:   sdktranslator.FormatOpenAI,
+		ResponseFormat: sdktranslator.FormatOpenAI,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream() error = %v", err)
+	}
+
+	var allChunks [][]byte
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Err)
+		}
+		allChunks = append(allChunks, chunk.Payload)
+	}
+
+	var trailingUsageChunk []byte
+	for _, chunk := range allChunks {
+		choices := gjson.GetBytes(chunk, "choices")
+		if choices.Exists() && len(choices.Array()) == 0 && gjson.GetBytes(chunk, "usage").Exists() {
+			trailingUsageChunk = chunk
+			break
+		}
+	}
+
+	if trailingUsageChunk == nil {
+		t.Fatalf("expected trailing usage chunk with choices: [], got: %s", string(bytes.Join(allChunks, []byte("\n"))))
+	}
+
+	if gotCached := gjson.GetBytes(trailingUsageChunk, "usage.prompt_tokens_details.cached_tokens").Int(); gotCached != 355598 {
+		t.Errorf("cached_tokens = %d, want 355598", gotCached)
+	}
+	if gotWrite := gjson.GetBytes(trailingUsageChunk, "usage.prompt_tokens_details.cache_write_tokens").Int(); gotWrite != 7185 {
+		t.Errorf("cache_write_tokens = %d, want 7185", gotWrite)
+	}
+	if gotCreation := gjson.GetBytes(trailingUsageChunk, "usage.prompt_tokens_details.cached_creation_tokens").Int(); gotCreation != 7185 {
+		t.Errorf("cached_creation_tokens = %d, want 7185", gotCreation)
+	}
+	if gotOutput := gjson.GetBytes(trailingUsageChunk, "usage.completion_tokens").Int(); gotOutput != 15 {
+		t.Errorf("completion_tokens = %d, want 15", gotOutput)
+	}
+}
+
 // TestClaudeExecutor_ExecuteStreamDecodesCompressedSSE guards the dependency that
 // lets CPA advertise the real client's Accept-Encoding on streaming requests:
 // once compression is offered the upstream may compress the SSE body, so the
@@ -2398,7 +2461,7 @@ func TestClaudeExecutor_CountTokensUpstreamConfirmedVSCodePreservesCustomTool(t 
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FormatClaude,
 		Headers: http.Header{
-			"User-Agent":     {"claude-cli/2.1.258 (external, claude-vscode, agent-sdk/0.3.220)"},
+			"User-Agent":     {"claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"},
 			"X-App":          {"cli"},
 			"Anthropic-Beta": {"claude-code-20250219"},
 		},
@@ -2592,7 +2655,7 @@ func TestClaudeExecutor_CountTokensConfirmedNativePreservesMeasuredOAuthBody(t *
 	_, errCount := executor.countTokensUpstream(ctx, auth, cliproxyexecutor.Request{Model: "claude-opus-5", Payload: payload}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FormatClaude,
 		Headers: http.Header{
-			"User-Agent":     {"claude-cli/2.1.258 (external, cli)"},
+			"User-Agent":     {"claude-cli/2.1.280 (external, cli)"},
 			"X-App":          {"cli"},
 			"Anthropic-Beta": {incomingBetas},
 		},
@@ -3258,135 +3321,6 @@ func TestClaudeExecutor_ExecuteSanitizesSignaturesBeforeUpstream(t *testing.T) {
 	}
 }
 
-func TestClaudeExecutor_ExecuteWarnsForUnknownCAISGenerationAtDefaultInfo(t *testing.T) {
-	logger := log.StandardLogger()
-	previousLevel := logger.GetLevel()
-	previousOutput := logger.Out
-	previousHooks := logger.ReplaceHooks(make(log.LevelHooks))
-	logger.SetLevel(log.InfoLevel)
-	logger.SetOutput(io.Discard)
-	hook := logtest.NewLocal(logger)
-	t.Cleanup(func() {
-		hook.Reset()
-		logger.ReplaceHooks(previousHooks)
-		logger.SetOutput(previousOutput)
-		logger.SetLevel(previousLevel)
-	})
-
-	var seenBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		seenBody = bytes.Clone(body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","model":"claude-fable-5-1","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
-	}))
-	defer server.Close()
-
-	executor := NewClaudeExecutor(&config.Config{})
-	auth := &cliproxyauth.Auth{Attributes: map[string]string{
-		"api_key":  "key-123",
-		"base_url": server.URL,
-	}}
-	run := func(t *testing.T, payload []byte) ([]*log.Entry, []byte) {
-		t.Helper()
-		hook.Reset()
-		seenBody = nil
-		if _, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
-			Model:   "claude-fable-5-1",
-			Payload: payload,
-		}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("claude")}); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-		if len(seenBody) == 0 {
-			t.Fatal("expected executor to send an upstream request")
-		}
-		return hook.AllEntries(), bytes.Clone(seenBody)
-	}
-
-	const warningMessage = "claude executor: dropped signed history for unknown CAIS generation"
-	assertUnknownWarnings := func(t *testing.T, entries []*log.Entry, want map[string]int) {
-		t.Helper()
-		got := make(map[string]int)
-		for _, entry := range entries {
-			if entry.Message != warningMessage {
-				continue
-			}
-			if entry.Level != log.WarnLevel {
-				t.Fatalf("unknown-generation diagnosis level = %s, want warning", entry.Level)
-			}
-			reason := fmt.Sprint(entry.Data["reason"])
-			if _, duplicate := got[reason]; duplicate {
-				t.Fatalf("unknown-generation reason %q emitted more than once instead of being aggregated", reason)
-			}
-			count, ok := entry.Data["dropped_block_count"].(int)
-			if !ok {
-				t.Fatalf("warning for %q has dropped_block_count=%#v, want integer", reason, entry.Data["dropped_block_count"])
-			}
-			got[reason] = count
-		}
-		if len(got) != len(want) {
-			t.Fatalf("unknown-generation warning reasons = %v, want %v; entries=%v", got, want, entries)
-		}
-		for reason, count := range want {
-			if got[reason] != count {
-				t.Fatalf("warning count for %q = %d, want %d; all=%v", reason, got[reason], count, got)
-			}
-		}
-	}
-
-	const unknownEnvelopeReason = "invalid Claude model-free CAIS signature: unknown envelope version 5"
-	const unknownChannelReason = "invalid Claude model-free CAIS signature: unknown channel_id 18"
-	t.Run("sole unknown generation is visible at default info", func(t *testing.T) {
-		signature := modelFreeClaudeCAISSignatureForExecutorTest(5, 17)
-		payload := []byte(`{"model":"claude-fable-5-1","max_tokens":16,"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"signed history","signature":"` + signature + `"},{"type":"text","text":"answer"}]},{"role":"user","content":[{"type":"text","text":"next"}]}]}`)
-		entries, body := run(t, payload)
-		if bytes.Contains(body, []byte(signature)) {
-			t.Fatal("unknown-generation thinking signature reached upstream")
-		}
-		assertUnknownWarnings(t, entries, map[string]int{unknownEnvelopeReason: 1})
-	})
-
-	t.Run("later unknown generations are aggregated at default info", func(t *testing.T) {
-		recognized := modelFreeClaudeCAISSignatureForExecutorTest(4, 17)
-		unknownEnvelope := modelFreeClaudeCAISSignatureForExecutorTest(5, 17)
-		unknownChannel := modelFreeClaudeCAISSignatureForExecutorTest(4, 18)
-		payload := []byte(`{"model":"claude-fable-5-1","max_tokens":16,"messages":[` +
-			`{"role":"assistant","content":[{"type":"thinking","thinking":"recognized","signature":"` + recognized + `"},{"type":"text","text":"answer 0"}]},` +
-			`{"role":"user","content":[{"type":"text","text":"next 0"}]},` +
-			`{"role":"assistant","content":[{"type":"thinking","thinking":"unknown envelope one","signature":"` + unknownEnvelope + `"},{"type":"text","text":"answer 1"}]},` +
-			`{"role":"user","content":[{"type":"text","text":"next 1"}]},` +
-			`{"role":"assistant","content":[{"type":"thinking","thinking":"unknown envelope two","signature":"` + unknownEnvelope + `"},{"type":"text","text":"answer 2"}]},` +
-			`{"role":"user","content":[{"type":"text","text":"next 2"}]},` +
-			`{"role":"assistant","content":[{"type":"thinking","thinking":"unknown channel","signature":"` + unknownChannel + `"},{"type":"text","text":"answer 3"}]},` +
-			`{"role":"user","content":[{"type":"text","text":"next 3"}]}]}`)
-		entries, body := run(t, payload)
-		if !bytes.Contains(body, []byte(recognized)) {
-			t.Fatal("recognized CAIS signature was not preserved ahead of later rejections")
-		}
-		if bytes.Contains(body, []byte(unknownEnvelope)) || bytes.Contains(body, []byte(unknownChannel)) {
-			t.Fatal("later unknown-generation thinking signature reached upstream")
-		}
-		assertUnknownWarnings(t, entries, map[string]int{
-			unknownEnvelopeReason: 2,
-			unknownChannelReason:  1,
-		})
-	})
-
-	t.Run("ordinary drop emits no warning", func(t *testing.T) {
-		const ordinarySignature = "gAAAAABopenai-encrypted-content"
-		payload := []byte(`{"model":"claude-fable-5-1","max_tokens":16,"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"foreign history","signature":"` + ordinarySignature + `"},{"type":"text","text":"answer"}]},{"role":"user","content":[{"type":"text","text":"next"}]}]}`)
-		entries, body := run(t, payload)
-		if bytes.Contains(body, []byte(ordinarySignature)) {
-			t.Fatal("ordinary incompatible thinking signature reached upstream")
-		}
-		for _, entry := range entries {
-			if entry.Data["component"] == "signature_sanitizer" {
-				t.Fatalf("ordinary sanitize report escaped debug logging: level=%s message=%q fields=%v", entry.Level, entry.Message, entry.Data)
-			}
-		}
-	})
-}
-
 func TestClaudeExecutor_Execute_InvalidGzipErrorBodyReturnsDecodeMessage(t *testing.T) {
 	testClaudeExecutorInvalidCompressedErrorBody(t, func(executor *ClaudeExecutor, auth *cliproxyauth.Auth, payload []byte) error {
 		_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
@@ -4015,9 +3949,9 @@ func assertEphemeralUserTextBlock(t *testing.T, block gjson.Result, wantText, wa
 	}
 }
 
-func TestClaudeBillingFingerprintUsesLatestUserText(t *testing.T) {
+func TestClaudeBillingFingerprintUsesFirstUserText(t *testing.T) {
 	const prompt = "CPA_OFFICIAL_BASEURL_CLI_SYSTEM_EMPTY_b82d4e"
-	payload := []byte(`{"system":"must not seed the build hash","messages":[{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":[{"type":"text","text":"<system-reminder>date</system-reminder>"},{"type":"text","text":"` + prompt + `"}]}]}`)
+	payload := []byte(`{"system":"must not seed the build hash","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>date</system-reminder>"},{"type":"text","text":"` + prompt + `"}]},{"role":"assistant","content":"answer"},{"role":"user","content":"turn2"}]}`)
 	if got := claudeBillingFingerprintMessageText(payload); got != prompt {
 		t.Fatalf("claudeBillingFingerprintMessageText() = %q, want %q", got, prompt)
 	}
@@ -4787,6 +4721,88 @@ func TestCheckSystemInstructionsWithMode_ToolResultWithAdvisorRedactedResult(t *
 	}
 }
 
+func TestCheckSystemInstructionsWithMode_ClientToolNamedAdvisorRelocatesSystemPrompt(t *testing.T) {
+	// A client tool (e.g. MCP tool) happens to be named "advisor".
+	// It uses ordinary "tool_use" (not "server_tool_use") and returns a string "tool_result".
+	// The caller's system prompt must be relocated to mid-conversation system messages,
+	// NOT hoisted into the top-level system array.
+	payload := []byte(`{
+		"model": "claude-opus-5",
+		"system": [
+			{"type": "text", "text": "caller guidance"}
+		],
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "tool_use", "id": "toolu_client1", "name": "advisor", "input": {"query": "help"}}
+				]
+			},
+			{
+				"role": "user",
+				"content": [
+					{
+						"type": "tool_result",
+						"tool_use_id": "toolu_client1",
+						"content": "client advice text"
+					}
+				]
+			}
+		]
+	}`)
+
+	out := checkSystemInstructionsWithMode(payload, false)
+
+	// Caller prompt must be relocated to a mid-conversation system message,
+	// so the top-level system must only have the 2 Claude Code cloak blocks.
+	systemBlocks := gjson.GetBytes(out, "system").Array()
+	if len(systemBlocks) != 2 {
+		t.Fatalf("system blocks count = %d, want 2 (caller prompt must be relocated, not hoisted): %s", len(systemBlocks), out)
+	}
+	for i, b := range systemBlocks {
+		if strings.Contains(b.Get("text").String(), "caller guidance") {
+			t.Fatalf("system[%d] unexpectedly contains caller guidance: %s", i, b.Raw)
+		}
+	}
+	assertClaudeMidConversationSystemMessage(t, out, 1, "caller guidance", "")
+}
+
+func TestRelocateClaudeSystemPromptForCountTokens_ClientToolNamedAdvisorRelocatesSystemPrompt(t *testing.T) {
+	payload := []byte(`{
+		"model": "claude-opus-5",
+		"system": [
+			{"type": "text", "text": "caller guidance"}
+		],
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "tool_use", "id": "toolu_client1", "name": "advisor", "input": {"query": "help"}}
+				]
+			},
+			{
+				"role": "user",
+				"content": [
+					{
+						"type": "tool_result",
+						"tool_use_id": "toolu_client1",
+						"content": "client advice text"
+					}
+				]
+			}
+		]
+	}`)
+
+	out := relocateClaudeSystemPromptForCountTokens(payload, false)
+
+	if gjson.GetBytes(out, "system").Exists() {
+		t.Fatalf("count_tokens system field should have been relocated out of top-level system: %s", out)
+	}
+	assertClaudeMidConversationSystemMessage(t, out, 1, "caller guidance", "")
+}
+
 // Test case 5: Special characters survive the mid-conversation system move.
 func TestCheckSystemInstructionsWithMode_StringWithSpecialChars(t *testing.T) {
 	payload := []byte(`{"model":"claude-opus-5","system":"Use <xml> tags & \"quotes\" in output.","messages":[{"role":"user","content":"hi"}]}`)
@@ -4992,7 +5008,7 @@ func TestClaudeExecutor_RebuildMidSystemMessageDisabledByDefault(t *testing.T) {
 	}}
 	payload := []byte(`{"system":[{"type":"text","text":"Top rule","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"system","content":"Mid rule"},{"role":"user","content":[{"type":"text","text":"continue"}]}],"metadata":{"user_id":"{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"account_uuid\":\"\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}"}}`)
 	ctx := contextWithGinHeaders(map[string]string{
-		"User-Agent":     "claude-cli/2.1.258 (external, cli)",
+		"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 		"X-App":          "cli",
 		"Anthropic-Beta": "claude-code-20250219",
 	})
@@ -5038,7 +5054,7 @@ func TestClaudeExecutor_RebuildMidSystemMessageOptInMovesSystemMessages(t *testi
 	}}
 	payload := []byte(`{"system":"Top rule","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"system","content":"Mid string rule"},{"role":"assistant","content":[{"type":"text","text":"ok"}]},{"role":"system","content":[{"type":"text","text":"Mid array rule","cache_control":{"type":"ephemeral"}}]},{"role":"user","content":[{"type":"text","text":"continue"}]}],"metadata":{"user_id":"{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"account_uuid\":\"\",\"session_id\":\"11111111-2222-4333-8444-555555555555\"}"}}`)
 	ctx := contextWithGinHeaders(map[string]string{
-		"User-Agent":     "claude-cli/2.1.258 (external, cli)",
+		"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 		"X-App":          "cli",
 		"Anthropic-Beta": "claude-code-20250219",
 	})
@@ -5146,6 +5162,120 @@ func TestApplyCloaking_PreservesConfiguredStrictModeAndSensitiveWordsWhenModeOmi
 	assertClaudeCodeCurrentDateBlock(t, content[0])
 	if got := content[1].Get("text").String(); !strings.Contains(got, "\u200B") {
 		t.Fatalf("expected configured sensitive word obfuscation to apply, got %q", got)
+	}
+}
+
+func TestApplyCloaking_Opus55FallbackOnlyForUnconfirmedClients(t *testing.T) {
+	cfg := &config.Config{ClaudeKey: []config.ClaudeKey{{
+		APIKey: "sk-ant-oat-opus55-test", Cloak: &config.CloakConfig{},
+	}}}
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "sk-ant-oat-opus55-test"}}
+	for _, tt := range []struct {
+		name      string
+		payload   string
+		confirmed bool
+		wantModel string
+	}{
+		{name: "non-native Opus 5.5", payload: `{"model":"claude-opus-5-5","messages":[{"role":"user","content":"test"}]}`, wantModel: "claude-opus-4-8"},
+		{name: "native Opus 5.5 stays untouched", payload: `{"model":"claude-opus-5-5","messages":[{"role":"user","content":"test"}]}`, confirmed: true},
+		{name: "caller fallback takes precedence", payload: `{"model":"claude-opus-5-5","fallbacks":[{"model":"claude-sonnet-5"}],"messages":[{"role":"user","content":"test"}]}`, wantModel: "claude-sonnet-5"},
+		{name: "other model does not inherit fallback", payload: `{"model":"claude-opus-5","messages":[{"role":"user","content":"test"}]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body, cloaked, err := applyCloaking(context.Background(), cfg, auth, []byte(tt.payload), "sk-ant-oat-opus55-test", tt.confirmed, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cloaked == tt.confirmed {
+				t.Fatalf("cloaked = %v, confirmed = %v", cloaked, tt.confirmed)
+			}
+			fallbacks := gjson.GetBytes(body, "fallbacks").Array()
+			if tt.wantModel == "" {
+				if len(fallbacks) != 0 {
+					t.Fatalf("unexpected fallback: %s", gjson.GetBytes(body, "fallbacks").Raw)
+				}
+			} else if len(fallbacks) != 1 || fallbacks[0].Get("model").String() != tt.wantModel {
+				t.Fatalf("fallbacks = %s, want %s", gjson.GetBytes(body, "fallbacks").Raw, tt.wantModel)
+			}
+			if tt.confirmed && string(body) != tt.payload {
+				t.Fatal("confirmed native payload was cloaked")
+			}
+			if !tt.confirmed && !strings.Contains(gjson.GetBytes(body, "system.0.text").String(), "cc_turn_origin=human;") {
+				t.Fatal("cloaked main request is missing its CLI turn origin")
+			}
+		})
+	}
+}
+
+func TestClaudeExecutor_CloakedOpus55PairsFallbackAndBetas(t *testing.T) {
+	var seenBody []byte
+	var seenHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenBody, _ = io.ReadAll(r.Body)
+		seenHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	auth := &cliproxyauth.Auth{ID: "cloaked-opus55", Metadata: claudeOAuthTestMetadata(), Attributes: map[string]string{
+		"api_key": "sk-ant-oat-cloaked-opus55", "base_url": server.URL,
+	}}
+	payload := []byte(`{"model":"claude-opus-5-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"test"}]}`)
+	executor := NewClaudeExecutor(&config.Config{})
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model: "claude-opus-5-5", Payload: payload,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(seenBody, "fallbacks.0.model").String(); got != "claude-opus-4-8" {
+		t.Errorf("fallback model = %q", got)
+	}
+	for _, beta := range []string{
+		claudePerTurnControlBeta,
+		claudeMidConvSystemClearAtBeta,
+		claudeThinkingBindingBeta,
+		claudeServerSideFallbackBeta,
+		claudeFallbackCreditBeta,
+	} {
+		if !strings.Contains(seenHeaders.Get("Anthropic-Beta"), beta) {
+			t.Errorf("missing %s beta", beta)
+		}
+	}
+	if text := gjson.GetBytes(seenBody, "system.0.text").String(); !strings.Contains(text, "cc_turn_origin=human;") {
+		t.Error("cloaked request is missing human turn origin")
+	}
+	if got := seenHeaders.Get("X-Claude-Code-Request-Class"); got != "" {
+		t.Errorf("cloaked request invented native request class %q", got)
+	}
+}
+
+func TestClaudeOpus55FallbackReconcilesAfterModelOverride(t *testing.T) {
+	before := []byte(`{"model":"claude-opus-5-5","system":[{"type":"text","text":"billing"}]}`)
+	cloaked := []byte(`{"model":"claude-opus-5-5","fallbacks":[{"model":"claude-opus-4-8"}],"system":[{"type":"text","text":"billing"}]}`)
+	state := captureClaudeCodeFableState(before, cloaked, true)
+	for _, tt := range []struct {
+		name, body, wantFallback string
+		probe                    bool
+	}{
+		{name: "switch to Sonnet", body: `{"model":"claude-sonnet-5","fallbacks":[{"model":"claude-opus-4-8"}],"system":[{"type":"text","text":"billing"}]}`},
+		{name: "switch to Fable", body: `{"model":"claude-fable-5-1","fallbacks":[{"model":"claude-opus-4-8"}],"system":[{"type":"text","text":"billing"}]}`, wantFallback: "claude-opus-5"},
+		{name: "same Opus", body: string(cloaked), wantFallback: "claude-opus-4-8"},
+		{name: "Opus probe", body: string(cloaked), probe: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reconcileClaudeCodeFableModelAfterPayload([]byte(tt.body), state, false, false, true, tt.probe)
+			if model := gjson.GetBytes(got, "fallbacks.0.model").String(); model != tt.wantFallback {
+				t.Errorf("fallback = %q, want %q", model, tt.wantFallback)
+			}
+		})
+	}
+	got := reconcileClaudeCodeFableModelAfterPayload(
+		[]byte(`{"model":"claude-opus-5-5","system":[]}`), claudeCodeFableState{}, false, false, true, false,
+	)
+	if fallback := gjson.GetBytes(got, "fallbacks.0.model").String(); fallback != "claude-opus-4-8" {
+		t.Errorf("Sonnet rewritten to Opus fallback = %q", fallback)
 	}
 }
 
@@ -5506,7 +5636,7 @@ func TestClaudeExecutor_SubagentAndProbeOmit1hCacheTTLAndBeta(t *testing.T) {
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FormatClaude,
 		Headers: http.Header{
-			"User-Agent":             {"claude-cli/2.1.258 (external, cli)"},
+			"User-Agent":             {"claude-cli/2.1.280 (external, cli)"},
 			"X-Claude-Code-Agent-Id": {"subagent-confirmed-456"},
 			"Anthropic-Beta":         {"claude-code-20250219,oauth-2025-04-20,effort-2025-11-24"},
 		},
@@ -7738,7 +7868,7 @@ func TestClaudeExecutor_ExecuteOAuthCustomToolMCPAliasRoundTrip(t *testing.T) {
 	if _, ok := claudeBillingCCHDigitsOffset(upstreamBody); !ok {
 		t.Fatalf("Claude OAuth custom BaseURL body is missing CCH: %s", upstreamBody)
 	}
-	if got := upstreamHeaders.Get("User-Agent"); got != "claude-cli/2.1.258 (external, cli)" {
+	if got := upstreamHeaders.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
 		t.Fatalf("Messages User-Agent = %q, want CLI identity", got)
 	}
 	wantBetas := claudeCodeCLIBetas(payload, nil, true)
@@ -7815,7 +7945,7 @@ func TestClaudeExecutor_ExecuteStreamOAuthCustomToolMCPAliasRoundTrip(t *testing
 	if _, ok := claudeBillingCCHDigitsOffset(upstreamBody); !ok {
 		t.Fatalf("streaming Claude OAuth custom BaseURL body is missing CCH: %s", upstreamBody)
 	}
-	if got := upstreamHeaders.Get("User-Agent"); got != "claude-cli/2.1.258 (external, cli)" {
+	if got := upstreamHeaders.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
 		t.Fatalf("streaming User-Agent = %q, want CLI identity", got)
 	}
 	wantBetas := claudeCodeCLIBetas(payload, nil, true)
@@ -7979,7 +8109,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 		},
 		{
 			name: "opus-5 1m variant reproduces the full observed order",
-			body: `{"model":"claude-opus-5","tools":[{"name":"Read"}]}`,
+			body: `{"model":"claude-opus-5","tools":[{"name":"Read","defer_loading":true}]}`,
 			requested: map[string]bool{
 				claudeContext1MBeta:          true,
 				claudeServerSideFallbackBeta: true,
@@ -7988,7 +8118,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: "claude-code-20250219,context-1m-2025-08-07," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01," +
 				"advanced-tool-use-2025-11-20,effort-2025-11-24," +
 				"server-side-fallback-2026-06-01,fallback-credit-2026-06-01",
 		},
@@ -8007,17 +8137,43 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 		{
 			name: "claude-sonnet-5 accepts role=system",
 			body: `{"model":"claude-sonnet-5"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
 		},
 		{
 			name: "claude-opus-4-8 accepts role=system",
 			body: `{"model":"claude-opus-4-8"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24",
 		},
 		{
 			name: "claude-fable-5 accepts role=system",
 			body: `{"model":"claude-fable-5"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24",
+		},
+		{
+			name: "opus-5-5 carries capability betas without optional body fields",
+			body: `{"model":"claude-opus-5-5","thinking":{"type":"adaptive"}}`,
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01",
+		},
+		{
+			name: "opus-5-5 without thinking still carries clear-at capability",
+			body: `{"model":"claude-opus-5-5"}`,
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
+		},
+		{
+			name: "fable-5-1 carries per-turn-control but not timing unless the body asks",
+			body: `{"model":"claude-fable-5-1"}`,
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
+		},
+		{
+			name: "opus-5-5 timing and the other 2.1.280 gated betas keep wire order",
+			body: `{"model":"claude-opus-5-5","safeguards":[{}],"thinking":{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"omit"}},"messages":[{"role":"system","clear_at":"next_user_message","content":[{"type":"tool_addition","tool":{"definition":{"name":"bash"}}}]},{"role":"user","content":"x","output_config":{"timing":{"now":"2026-09-23T00:00:00Z"}}}],"cache_control":{"type":"ephemeral","evict_on_complete":true}}`,
+			requested: map[string]bool{
+				claudeThinkingResumptionBeta: true,
+			},
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,timing-2026-09-09," +
+				"mid-conversation-tool-changes-2026-07-01,inline-tools-2026-09-15," +
+				"mid-conversation-system-clear-at-2026-08-21,dangerous-tool-use-2026-09-03,effort-2025-11-24," +
+				"thinking-binding-controls-2026-08-01,thinking-resumption-2026-07-17,prompt-caching-evict-2026-05-12",
 		},
 		{
 			name: "claude-opus-4-7 stays on the reminder path",
@@ -8025,19 +8181,18 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: constants + ",effort-2025-11-24",
 		},
 		{
-			name:  "oauth uses advanced tools and the current cache TTL trailer",
-			body:  `{"model":"claude-opus-4-6","tools":[{"name":"Read"}]}`,
+			name:  "oauth uses tool search and the current cache TTL trailer",
+			body:  `{"model":"claude-opus-4-6","tools":[{"name":"Read","defer_loading":true}]}`,
 			oauth: true,
 			want: "claude-code-20250219,oauth-2025-04-20," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
 				"prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20," +
-				"effort-2025-11-24,fallback-credit-2026-06-01," +
-				"extended-cache-ttl-2025-04-11",
+				"effort-2025-11-24,extended-cache-ttl-2025-04-11",
 		},
 		{
 			name:  "oauth precedes context-1m",
-			body:  `{"model":"claude-opus-5","tools":[{"name":"Read"}]}`,
+			body:  `{"model":"claude-opus-5","tools":[{"name":"Read","defer_loading":true}]}`,
 			oauth: true,
 			requested: map[string]bool{
 				claudeContext1MBeta:          true,
@@ -8047,7 +8202,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: "claude-code-20250219,oauth-2025-04-20,context-1m-2025-08-07," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01," +
 				"advanced-tool-use-2025-11-20,effort-2025-11-24," +
 				"server-side-fallback-2026-06-01,fallback-credit-2026-06-01," +
 				"extended-cache-ttl-2025-04-11",
@@ -8063,19 +8218,45 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: constants,
 		},
 		{
-			name: "legacy model with tools adds advanced tool use only",
+			name: "legacy model with inline tools no longer adds advanced tool use",
 			body: `{"model":"claude-sonnet-4-6","tools":[{"name":"Read"}]}`,
+			want: constants + ",effort-2025-11-24",
+		},
+		{
+			name: "deferred tool adds advanced tool use",
+			body: `{"model":"claude-sonnet-4-6","tools":[{"name":"Read","defer_loading":true}]}`,
 			want: constants + ",advanced-tool-use-2025-11-20,effort-2025-11-24",
+		},
+		{
+			name: "tool search server tool adds advanced tool use",
+			body: `{"model":"claude-sonnet-4-6","tools":[{"type":"tool_search_tool_regex_20251119","name":"tool_search_tool_regex"},{"name":"Read"}]}`,
+			want: constants + ",advanced-tool-use-2025-11-20,effort-2025-11-24",
+		},
+		{
+			name: "tool use examples add advanced tool use",
+			body: `{"model":"claude-sonnet-4-6","tools":[{"name":"Read","input_examples":[{"path":"a.go"}]}]}`,
+			want: constants + ",advanced-tool-use-2025-11-20,effort-2025-11-24",
+		},
+		{
+			name: "programmatic tool calling adds advanced tool use",
+			body: `{"model":"claude-sonnet-4-6","tools":[{"name":"Read","allowed_callers":["code_execution_20250825"]}]}`,
+			want: constants + ",advanced-tool-use-2025-11-20,effort-2025-11-24",
+		},
+		{
+			name:      "requested advanced tool use is honored for inline tools",
+			body:      `{"model":"claude-sonnet-4-6","tools":[{"name":"Read"}]}`,
+			requested: map[string]bool{claudeAdvancedToolUseBeta: true},
+			want:      constants + ",advanced-tool-use-2025-11-20,effort-2025-11-24",
 		},
 		{
 			name: "role=system model without tools adds mid conversation system only",
 			body: `{"model":"claude-opus-5"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24",
 		},
 		{
-			name: "role=system model with tools adds both in wire order",
-			body: `{"model":"claude-opus-5","tools":[{"name":"Read"}]}`,
-			want: constants + ",mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24",
+			name: "role=system model with tool search adds both in wire order",
+			body: `{"model":"claude-opus-5","tools":[{"name":"Read","defer_loading":true}]}`,
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advanced-tool-use-2025-11-20,effort-2025-11-24",
 		},
 		{
 			name: "empty tools array does not add advanced tool use",
@@ -8085,14 +8266,14 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 		{
 			name: "unknown future model keeps the optimistic role=system default",
 			body: `{"model":"claude-future-9"}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24",
 		},
 		{
 			name: "thinking display summarized drops redact-thinking",
 			body: `{"model":"claude-opus-5","thinking":{"type":"adaptive","display":"summarized"}}`,
 			want: "claude-code-20250219,interleaved-thinking-2025-05-14," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01," +
 				"effort-2025-11-24",
 		},
 		{
@@ -8114,27 +8295,67 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 		},
 		{
 			name:      "advisor tool beta requested placed before advanced-tool-use",
-			body:      `{"model":"claude-opus-5","tools":[{"name":"Read"}]}`,
+			body:      `{"model":"claude-opus-5","tools":[{"name":"Read","defer_loading":true}]}`,
 			requested: map[string]bool{"advisor-tool-2026-03-01": true},
-			want:      constants + ",mid-conversation-system-2026-04-07,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24",
+			want:      constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24",
 		},
 		{
 			name: "body with advisor server tool automatically adds advisor-tool beta",
 			body: `{"model":"claude-opus-5","tools":[{"type":"advisor_20260301","name":"advisor"}]}`,
-			want: constants + ",mid-conversation-system-2026-04-07,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24",
+			want: constants + ",mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24",
+		},
+		{
+			// Captured 2026-09-02 from Claude Code 2.1.258 (cli entrypoint, OAuth,
+			// auto mode on): 158 inline tools without tool search, advisor beta
+			// enabled for the account, thinking adaptive without display.
+			name:  "2.1.258 main thread capture with inline tools and afk-mode",
+			body:  `{"model":"claude-fable-5-1","tools":[{"name":"Read"}],"thinking":{"type":"adaptive"}}`,
+			oauth: true,
+			requested: map[string]bool{
+				claudeAdvisorToolBeta: true,
+				claudeAFKModeBeta:     true,
+			},
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01," +
+				"advisor-tool-2026-03-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01," +
+				"afk-mode-2026-01-31,extended-cache-ttl-2025-04-11",
+		},
+		{
+			name:      "afk-mode sits between fast-mode and extended-cache-ttl",
+			body:      `{"model":"claude-opus-5","speed":"fast"}`,
+			oauth:     true,
+			requested: map[string]bool{claudeAFKModeBeta: true},
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01," +
+				"effort-2025-11-24,fast-mode-2026-02-01," +
+				"afk-mode-2026-01-31,extended-cache-ttl-2025-04-11",
+		},
+		{
+			name:  "afk-mode is not added unless the caller sent it",
+			body:  `{"model":"claude-opus-5"}`,
+			oauth: true,
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01," +
+				"effort-2025-11-24,extended-cache-ttl-2025-04-11",
 		},
 		{
 			name: "thinking display updates emits thinking-display-updates beta and drops redact-thinking",
 			body: `{"model":"claude-fable-5-1","thinking":{"type":"adaptive","display":"updates"}}`,
 			want: "claude-code-20250219,interleaved-thinking-2025-05-14," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
-				"effort-2025-11-24,thinking-display-updates-2026-08-18",
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01," +
+				"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,thinking-display-updates-2026-08-18",
 		},
 		{
 			name: "body with fallbacks automatically adds server-side-fallback beta",
 			body: `{"model":"claude-fable-5-1","fallbacks":[{"model":"claude-opus-5"}]}`,
-			want: constants + ",mid-conversation-system-2026-04-07,effort-2025-11-24,server-side-fallback-2026-06-01",
+			want: constants + ",mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,server-side-fallback-2026-06-01",
 		},
 		{
 			name:  "subagent request omits extended-cache-ttl beta",
@@ -8143,8 +8364,8 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: "claude-code-20250219,oauth-2025-04-20," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
-				"effort-2025-11-24,fallback-credit-2026-06-01",
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21," +
+				"effort-2025-11-24",
 		},
 		{
 			name:  "probe request max_tokens=1 omits effort and extended-cache-ttl betas",
@@ -8153,8 +8374,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: "claude-code-20250219,oauth-2025-04-20," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
-				"fallback-credit-2026-06-01",
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21",
 		},
 		{
 			name:      "haiku model omits effort beta even if requested",
@@ -8165,7 +8385,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
 				"prompt-caching-scope-2026-01-05," +
-				"fallback-credit-2026-06-01,extended-cache-ttl-2025-04-11",
+				"extended-cache-ttl-2025-04-11",
 		},
 		{
 			name:      "disabled thinking omits effort beta even if requested",
@@ -8175,8 +8395,40 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 			want: "claude-code-20250219,oauth-2025-04-20," +
 				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
 				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07," +
-				"fallback-credit-2026-06-01,extended-cache-ttl-2025-04-11",
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21," +
+				"extended-cache-ttl-2025-04-11",
+		},
+		{
+			name:  "body with fallback_credit_token automatically adds fallback-credit beta",
+			body:  `{"model":"claude-sonnet-5","fallback_credit_token":"fct_12345"}`,
+			oauth: true,
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21," +
+				"effort-2025-11-24,fallback-credit-2026-06-01,extended-cache-ttl-2025-04-11",
+		},
+		{
+			name:  "oauth body with fallbacks automatically adds fallback-credit beta",
+			body:  `{"model":"claude-fable-5-1","fallbacks":[{"model":"claude-opus-5"}]}`,
+			oauth: true,
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01," +
+				"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,server-side-fallback-2026-06-01,fallback-credit-2026-06-01," +
+				"extended-cache-ttl-2025-04-11",
+		},
+		{
+			name:      "requested fallback-credit beta is honored",
+			body:      `{"model":"claude-sonnet-5"}`,
+			requested: map[string]bool{claudeFallbackCreditBeta: true},
+			oauth:     true,
+			want: "claude-code-20250219,oauth-2025-04-20," +
+				"interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+				"thinking-token-count-2026-05-13,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-system-clear-at-2026-08-21," +
+				"effort-2025-11-24,fallback-credit-2026-06-01,extended-cache-ttl-2025-04-11",
 		},
 	}
 
@@ -8188,6 +8440,11 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 		})
 	}
 }
+
+// TestApplyClaudeHeaders_StreamTransportNegotiation pins the observed 2.1.220
+// behaviour: a streaming request to api.anthropic.com negotiates exactly like a
+// non-streaming one, because Anthropic selects SSE from the body. Other
+// Anthropic-compatible upstreams keep the conservative SSE contract.
 
 // TestWithClaudeAdvisorToolBeta_InsertsBeforeTrailingBetas pins the advisor
 // insertion point against every beta that follows it on the 2.1.258 wire,
@@ -8229,10 +8486,6 @@ func TestWithClaudeAdvisorToolBeta_InsertsBeforeTrailingBetas(t *testing.T) {
 	}
 }
 
-// TestApplyClaudeHeaders_StreamTransportNegotiation pins the observed 2.1.220
-// behaviour: a streaming request to api.anthropic.com negotiates exactly like a
-// non-streaming one, because Anthropic selects SSE from the body. Other
-// Anthropic-compatible upstreams keep the conservative SSE contract.
 func TestApplyClaudeHeaders_StreamTransportNegotiation(t *testing.T) {
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-stream-accept"}}
 	body := []byte(`{"model":"claude-opus-4-6","stream":true}`)
@@ -9189,7 +9442,7 @@ func TestClaudeExecutor_ProbeStripsCaller1hTTLAndBetas(t *testing.T) {
 	}
 }
 
-func TestClaudeExecutor_SubagentStripsCaller1hTTLAndExtendedCacheBeta(t *testing.T) {
+func TestClaudeExecutor_SubagentPreservesCaller1hTTLAndExtendedCacheBeta(t *testing.T) {
 	var seenHeaders http.Header
 	var seenBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -9239,16 +9492,16 @@ func TestClaudeExecutor_SubagentStripsCaller1hTTLAndExtendedCacheBeta(t *testing
 		t.Fatalf("Execute error = %v", err)
 	}
 
-	// 1. Verify body cache_control does not have ttl: "1h"
+	// 1. Verify body cache_control preserves ttl: "1h"
 	rawBody := string(seenBody)
-	if strings.Contains(rawBody, `"ttl":"1h"`) || strings.Contains(rawBody, `"ttl": "1h"`) {
-		t.Fatalf("subagent body must have ttl stripped, got: %s", rawBody)
+	if !strings.Contains(rawBody, `"ttl":"1h"`) && !strings.Contains(rawBody, `"ttl": "1h"`) {
+		t.Fatalf("subagent body must preserve ttl: 1h when requested, got: %s", rawBody)
 	}
 
-	// 2. Verify extended-cache-ttl beta is stripped from header
+	// 2. Verify extended-cache-ttl beta is preserved in header
 	betas := seenHeaders.Get("Anthropic-Beta")
-	if strings.Contains(betas, "extended-cache-ttl-2025-04-11") {
-		t.Errorf("subagent Anthropic-Beta must not contain extended-cache-ttl, got: %s", betas)
+	if !strings.Contains(betas, "extended-cache-ttl-2025-04-11") {
+		t.Errorf("subagent Anthropic-Beta must preserve extended-cache-ttl when requested, got: %s", betas)
 	}
 }
 

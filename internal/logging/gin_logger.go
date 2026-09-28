@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -54,6 +54,12 @@ func GinLogrusLogger() gin.HandlerFunc {
 		}
 
 		c.Next()
+
+		// Keep failed health probes visible, including responses from global middleware.
+		if path == "/healthz" && (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) &&
+			c.Writer.Status() >= http.StatusOK && c.Writer.Status() < http.StatusMultipleChoices {
+			return
+		}
 
 		if shouldSkipGinRequestLogging(c) {
 			return

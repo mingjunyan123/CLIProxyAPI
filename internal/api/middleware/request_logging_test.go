@@ -13,10 +13,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/clienterror"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 )
 
 func TestShouldSkipMethodForRequestLogging(t *testing.T) {
@@ -262,6 +262,51 @@ func TestRequestLoggingMiddlewareCapturesLargeErrorRequestAndDeferredAPIRequest(
 	}
 }
 
+func TestRequestLoggingMiddleware_StreamingResponsesUpstreamSections(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	logsDir := t.TempDir()
+	logger := logging.NewFileRequestLogger(true, logsDir, "", 10)
+	cfg := &config.Config{SDKConfig: config.SDKConfig{RequestLog: true}}
+
+	router := gin.New()
+	router.Use(RequestLoggingMiddleware(logger))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		c.Header("Content-Type", "text/event-stream")
+		executorCtx := context.WithValue(context.Background(), "gin", c)
+		helps.RecordAPIRequest(executorCtx, cfg, helps.UpstreamRequestLog{
+			URL:     "https://api.example.com/v1/responses",
+			Method:  http.MethodPost,
+			Headers: http.Header{"Content-Type": []string{"application/json"}},
+			Body:    []byte(`{"model":"gpt-5-codex","input":[]}`),
+		})
+		helps.AppendAPIResponseChunk(executorCtx, cfg, []byte("data: {\"type\":\"response.output_item.added\"}\n\n"))
+		_, _ = c.Writer.Write([]byte("data: {\"type\":\"response.output_item.added\"}\n\n"))
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5-codex","input":[],"stream":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("response status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	entries, errReadDir := os.ReadDir(logsDir)
+	if errReadDir != nil {
+		t.Fatalf("read logs dir: %v", errReadDir)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "v1-responses-") && strings.HasSuffix(entry.Name(), ".log") {
+			t.Fatalf("request-log skips inbound capture, got %s", entry.Name())
+		}
+	}
+}
+
 func TestAttachRequestLogSourcesUsesLoggerLogsDir(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -475,7 +520,7 @@ func TestRequestLoggingMiddleware_ClientCancellationExclusion(t *testing.T) {
 		}
 	})
 
-	t.Run("499 status logs standard request when request-log is true", func(t *testing.T) {
+	t.Run("499 status skips inbound capture when request-log is true", func(t *testing.T) {
 		logsDir := t.TempDir()
 		logger := logging.NewFileRequestLogger(true, logsDir, "", 10)
 
@@ -500,8 +545,8 @@ func TestRequestLoggingMiddleware_ClientCancellationExclusion(t *testing.T) {
 				standardLogCount++
 			}
 		}
-		if standardLogCount != 1 {
-			t.Fatalf("expected 1 standard request log file when request-log=true, got %d", standardLogCount)
+		if standardLogCount != 0 {
+			t.Fatalf("expected no inbound request log when request-log=true, got %d", standardLogCount)
 		}
 	})
 }
@@ -524,5 +569,13 @@ func TestCaptureRequestInfo_HeadersDeepCopy(t *testing.T) {
 
 	if got := info.Headers["X-Audit"][0]; got != "original-value" {
 		t.Fatalf("header slice was aliased: got %q, want %q", got, "original-value")
+	}
+}
+
+func TestManagementV8RequestsAreNotLogged(t *testing.T) {
+	for _, path := range []string{"/v8/management/config", "/v8/management/config.yaml", "/v8/management/config/api-keys/codex", "/v8/management/oauth/auth-url"} {
+		if shouldLogRequest(path) {
+			t.Errorf("management config request would be logged: %s", path)
+		}
 	}
 }
