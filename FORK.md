@@ -11,7 +11,7 @@ Fork-only code lives in dedicated files where possible. Upstream files keep a sh
 | Adapter native entrypoints | `helps/claude_adapter_compat.go` | one `\|\|` in `claude_client_detection.go` |
 | Claude OAuth outbound logs | `helps/claude_oauth_request_log.go` | one call in `logging_helpers.go`; inbound skip in `request_logging.go`; config field |
 | GHCR image | `.github/workflows/ghcr-image.yml` | none |
-| Native version floor / UA pin | — | `claude_device_profile.go`, helper check in `claude_client_detection.go` |
+| Native version floor | — | `claude_device_profile.go`, helper check in `claude_client_detection.go` |
 | Model-free CAIS signatures (pending data) | extra tests in `internal/signature/claude_test.go` | `claude_validation.go`, `provider_compatibility.go`, warn in `claude_executor.go` |
 
 ## Claude native pass-through
@@ -20,10 +20,11 @@ Upstream treats only `cli`, `sdk-cli`, and `claude-vscode` as native Claude Code
 
 This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent at or above the measured baseline, `claude-code-20250219` in Anthropic-Beta, and `metadata.user_id` except on `count_tokens`).
 
-Native confirmation is a **version floor**, not an exact match: `claude-cli/2.1.259+` still counts. Outbound User-Agent / package / runtime are pinned back to the measured baseline (`2.1.258` / `0.112.1`).
+Native confirmation is a **version floor**, not an exact match: `claude-cli/2.1.259+` still counts. A confirmed native request keeps the caller's `User-Agent` verbatim, version and entrypoint suffix included. `X-Stainless-Package-Version` and `X-Stainless-Runtime-Version` are still pinned to the measured baseline (`0.112.1` / `v26.3.0`) when they differ. A client below the floor is not native; its `User-Agent` is replaced with the baseline CLI identity, `claude-cli/2.1.258 (external, cli)`.
 
 For those confirmed requests, cliproxyapi does **not** cloak the body into a CLI shape. It keeps:
 
+- the caller's `User-Agent`
 - the caller's billing header (`cc_version` suffix and `cc_entrypoint`)
 - system blocks as sent
 - tool names as sent (including names unknown to the CLI cloak)

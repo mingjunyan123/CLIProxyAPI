@@ -59,10 +59,6 @@ type claudeCLIVersion struct {
 	patch int
 }
 
-func (v claudeCLIVersion) String() string {
-	return strconv.Itoa(v.major) + "." + strconv.Itoa(v.minor) + "." + strconv.Itoa(v.patch)
-}
-
 func (v claudeCLIVersion) Compare(other claudeCLIVersion) int {
 	switch {
 	case v.major != other.major:
@@ -218,8 +214,8 @@ func shouldUpgradeClaudeDeviceProfile(candidate, current ClaudeDeviceProfile) bo
 
 func plausibleClaudeCLIVersion(candidate, baseline claudeCLIVersion) bool {
 	// Native confirmation is a floor, not an exact match: Claude Code 2.1.259+
-	// still counts as a first-party client. Outbound software headers are pinned
-	// back to the measured baseline separately.
+	// still counts as a first-party client. The caller's User-Agent is forwarded
+	// unchanged once that confirmation succeeds.
 	return candidate.Compare(baseline) >= 0
 }
 
@@ -257,27 +253,20 @@ func meetsClaudeNativeSoftwareFloor(candidate, baseline ClaudeDeviceProfile) boo
 	return true
 }
 
-func pinClaudeCLIUserAgentVersion(userAgent string, version claudeCLIVersion) string {
-	userAgent = strings.TrimSpace(userAgent)
-	if userAgent == "" || !claudeCLIVersionPattern.MatchString(userAgent) {
-		return userAgent
-	}
-	return claudeCLIVersionPattern.ReplaceAllString(userAgent, "claude-cli/"+version.String())
-}
-
+// pinClaudeDeviceProfileSoftwareToBaseline pins package and runtime to the
+// measured baseline. A native User-Agent at or above that baseline stays as
+// sent; an older or unparseable User-Agent is replaced with the baseline identity.
 func pinClaudeDeviceProfileSoftwareToBaseline(profile, baseline ClaudeDeviceProfile) ClaudeDeviceProfile {
 	if !baseline.hasVersion {
 		return profile
 	}
-	if profile.UserAgent != "" {
-		profile.UserAgent = pinClaudeCLIUserAgentVersion(profile.UserAgent, baseline.version)
-	} else {
+	if !profile.hasVersion || !plausibleClaudeCLIVersion(profile.version, baseline.version) {
 		profile.UserAgent = baseline.UserAgent
+		profile.version = baseline.version
+		profile.hasVersion = true
 	}
 	profile.PackageVersion = baseline.PackageVersion
 	profile.RuntimeVersion = baseline.RuntimeVersion
-	profile.version = baseline.version
-	profile.hasVersion = true
 	return profile
 }
 
@@ -288,9 +277,8 @@ func pinClaudeDeviceProfilePlatform(profile, baseline ClaudeDeviceProfile) Claud
 }
 
 // normalizeClaudeDeviceProfile pins stabilized profiles to the configured
-// platform and measured software baseline. Newer Claude Code User-Agents keep
-// their entrypoint and only have the version rewritten, so outbound stays on
-// the measured fingerprint instead of learning a newer client.
+// platform. Package and runtime are pinned to the measured baseline. A native
+// User-Agent at or above that baseline is kept verbatim.
 func normalizeClaudeDeviceProfile(profile, baseline ClaudeDeviceProfile) ClaudeDeviceProfile {
 	profile = pinClaudeDeviceProfilePlatform(profile, baseline)
 	if !meetsClaudeDeviceProfileBaseline(profile, baseline) {
@@ -643,7 +631,7 @@ func ApplyClaudeDeviceProfileHeaders(r *http.Request, profile ClaudeDeviceProfil
 func DefaultClaudeVersion(cfg *config.Config) string {
 	profile := defaultClaudeDeviceProfile(cfg)
 	if version, ok := parseClaudeCLIVersion(profile.UserAgent); ok {
-		return version.String()
+		return strconv.Itoa(version.major) + "." + strconv.Itoa(version.minor) + "." + strconv.Itoa(version.patch)
 	}
 	return "2.1.258"
 }
@@ -674,7 +662,7 @@ func ApplyClaudeLegacyDeviceHeaders(r *http.Request, ginHeaders http.Header, cfg
 		miscEnsure("X-Stainless-Os", mapStainlessOS(), nil)
 		miscEnsure("X-Stainless-Arch", mapStainlessArch(), nil)
 		if clientUA := strings.TrimSpace(ginHeaders.Get("User-Agent")); plausibleClaudeCodeUserAgent(clientUA, cfg) {
-			r.Header.Set("User-Agent", pinClaudeCLIUserAgentVersion(clientUA, profile.version))
+			r.Header.Set("User-Agent", clientUA)
 			return
 		}
 	}

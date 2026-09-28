@@ -1274,9 +1274,9 @@ func TestClaudeExecutor_ConfirmedAdapterOAuthPreservesNativeBody(t *testing.T) {
 					if got := seenHeaders.Get("X-Claude-Code-Session-Id"); got != "33333333-4444-4555-8666-777777777777" {
 						t.Fatalf("X-Claude-Code-Session-Id = %q, want downstream agent session", got)
 					}
-					wantUA := "claude-cli/2.1.258 (external, " + entrypoint + ", agent-sdk/0.3.220)"
+					wantUA := "claude-cli/" + clientVersion + " (external, " + entrypoint + ", agent-sdk/0.3.220)"
 					if got := seenHeaders.Get("User-Agent"); got != wantUA {
-						t.Fatalf("User-Agent = %q, want outbound baseline %q", got, wantUA)
+						t.Fatalf("User-Agent = %q, want native User-Agent unchanged %q", got, wantUA)
 					}
 					if got := seenHeaders.Get("X-Stainless-Package-Version"); got != "0.112.1" {
 						t.Fatalf("X-Stainless-Package-Version = %q, want 0.112.1", got)

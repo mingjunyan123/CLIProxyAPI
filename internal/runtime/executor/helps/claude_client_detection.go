@@ -227,7 +227,7 @@ func normalizedClaudeBetaHeader(headers http.Header) string {
 //
 // Platform headers are deliberately NOT compared for equality. The device-profile
 // pipeline this detector feeds already pins OS/Arch to the configured baseline
-// and rewrites a newer Claude Code software tuple instead of rejecting it, so a
+// and accepts a newer Claude Code User-Agent instead of rejecting it, so a
 // genuine helper from Windows/Linux or from Claude Code 2.1.259+ is not cloaked.
 // At the measured baseline the package and runtime still have to match that
 // release; values that carry real discriminating power - the exact beta
