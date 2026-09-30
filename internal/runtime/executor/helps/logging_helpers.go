@@ -67,7 +67,7 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 		return
 	}
 	ginCtx := ginContextFrom(ctx)
-	captured := captureClaudeOAuthOutboundRequest(cfg, info, ginCtx)
+	captureClaudeOAuthOutboundRequest(cfg, info, ginCtx)
 	if cfg.CommercialMode {
 		return
 	}
@@ -75,9 +75,7 @@ func RecordAPIRequest(ctx context.Context, cfg *config.Config, info UpstreamRequ
 		return
 	}
 	if !cfg.RequestLog {
-		if !captured {
-			deferAPIRequest(ginCtx, info)
-		}
+		deferAPIRequest(ginCtx, info)
 		return
 	}
 

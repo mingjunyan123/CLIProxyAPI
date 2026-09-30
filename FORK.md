@@ -9,7 +9,8 @@ Fork-only code lives in dedicated files where possible. Upstream files keep a sh
 | Feature | Dedicated files | Remaining hook in an upstream file |
 |---|---|---|
 | Adapter native entrypoints | `helps/claude_adapter_compat.go` | one `\|\|` in `claude_client_detection.go` |
-| Claude OAuth outbound logs | `helps/claude_oauth_request_log.go` | one call in `logging_helpers.go`; inbound skip in `request_logging.go`; config field and v8 path |
+| Inbound `device_id` | `helps/claude_adapter_compat.go` | one call in `ApplyClaudeCredentialMetadata` |
+| Claude OAuth outbound logs | `helps/claude_oauth_request_log.go` | one call in `logging_helpers.go`; config field and v8 path |
 | GHCR image | `.github/workflows/ghcr-image.yml` | none |
 
 ## Claude native pass-through
@@ -31,7 +32,7 @@ For those confirmed requests, cliproxyapi does not cloak the body into a CLI sha
 
 It still rewrites OAuth identity the same way as upstream:
 
-- `metadata.user_id.device_id` comes from the credential file's `claude_device_ids`
+- a non-empty inbound `metadata.user_id.device_id` string is kept; a missing or blank one comes from the credential file's `claude_device_ids`
 - `account_uuid` comes from the OAuth credential
 - `session_id` is the CPA session
 - extra `user_id` fields such as `parent_session_id` are kept
@@ -44,17 +45,12 @@ Direct `/v1/messages` OAuth requests that are not confirmed native are cloaked, 
 
 ## Claude OAuth outbound logging
 
-Two logging knobs differ from upstream.
-
-`observability.logs.request-log: true` (legacy key `request-log`)
-
-- Inbound HTTP capture is skipped.
-- Only **Claude OAuth outbound** request payloads are written.
+`request-log` matches upstream. Inbound HTTP capture and the normal request log stay on that switch.
 
 `observability.logs.claude-oauth-outbound-log: true` (legacy key `claude-oauth-outbound-log`)
 
 - Independent of `request-log`.
-- Writes the same Claude OAuth outbound payloads as gzip, without buffering the full request-log pipeline.
+- Writes Claude OAuth upstream request payloads as gzip.
 - Default is `false` (`config.example.yaml`).
 
 Files go under `logs/claude-oauth/<account>/` as gzip, named `{entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz` (for example `cli-20260907-095330.425323.gz`). `less` can open them. API-key Claude traffic and non-Claude providers are not written there.

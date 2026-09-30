@@ -1,7 +1,6 @@
 package helps
 
 import (
-	"bytes"
 	"compress/gzip"
 	"fmt"
 	"os"
@@ -16,37 +15,16 @@ import (
 )
 
 // captureClaudeOAuthOutboundRequest is the only fork hook RecordAPIRequest
-// should call. Keep Claude OAuth file logging out of logging_helpers.go so
-// upstream rebases of that file stay a one-call conflict.
-//
-// It returns true when a lightweight capture already stored the request, so
-// the standard request-log path should not defer it again.
-func captureClaudeOAuthOutboundRequest(cfg *config.Config, info UpstreamRequestLog, ginCtx *gin.Context) bool {
-	if cfg == nil || !shouldWriteClaudeOAuthOutboundLog(info) {
-		return false
+// should call. It writes Claude OAuth upstream payloads when
+// claude-oauth-outbound-log is enabled and does not change request-log.
+func captureClaudeOAuthOutboundRequest(cfg *config.Config, info UpstreamRequestLog, ginCtx *gin.Context) {
+	if cfg == nil || !cfg.ClaudeOAuthOutboundLog || !shouldWriteClaudeOAuthOutboundLog(info) {
+		return
 	}
 	index := len(getAttempts(ginCtx)) + 1
-	if cfg.ClaudeOAuthOutboundLog {
-		if errWrite := writeLightweightClaudeOAuthOutboundLog(cfg, info, index); errWrite != nil {
-			log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
-			return false
-		}
-		return true
-	}
-	if cfg.CommercialMode || !cfg.RequestLog {
-		return false
-	}
-	builder := newAPIRequestLogBuilder(index, info, time.Now())
-	if len(info.Body) > 0 {
-		builder.Write(info.Body)
-	} else {
-		builder.WriteString("<empty>")
-	}
-	builder.WriteString("\n\n")
-	if errWrite := writeClaudeOAuthOutboundLog(cfg, info, []byte(builder.String())); errWrite != nil {
+	if errWrite := writeLightweightClaudeOAuthOutboundLog(cfg, info, index); errWrite != nil {
 		log.WithError(errWrite).Warn("failed to write claude oauth outbound request log")
 	}
-	return false
 }
 
 func shouldWriteClaudeOAuthOutboundLog(info UpstreamRequestLog) bool {
@@ -71,40 +49,6 @@ func claudeOAuthOutboundLogFile(cfg *config.Config, info UpstreamRequestLog) (st
 		return "", fmt.Errorf("create claude oauth request log dir: %w", errMkdir)
 	}
 	return filepath.Join(logDir, outboundRequestLogFilename(info)), nil
-}
-
-func writeClaudeOAuthOutboundLog(cfg *config.Config, info UpstreamRequestLog, payload []byte) error {
-	if len(payload) == 0 {
-		return nil
-	}
-	filePath, errPath := claudeOAuthOutboundLogFile(cfg, info)
-	if errPath != nil {
-		return errPath
-	}
-	if errWrite := writeClaudeOAuthGzipFile(filePath, payload); errWrite != nil {
-		return fmt.Errorf("write claude oauth request log: %w", errWrite)
-	}
-	return nil
-}
-
-func writeClaudeOAuthGzipFile(filePath string, payload []byte) error {
-	var compressed bytes.Buffer
-	gzipWriter, errGzip := gzip.NewWriterLevel(&compressed, gzip.BestSpeed)
-	if errGzip != nil {
-		return fmt.Errorf("create gzip writer: %w", errGzip)
-	}
-	if _, errWrite := gzipWriter.Write(payload); errWrite != nil {
-		_ = gzipWriter.Close()
-		return fmt.Errorf("compress log: %w", errWrite)
-	}
-	if errClose := gzipWriter.Close(); errClose != nil {
-		return fmt.Errorf("finish log compression: %w", errClose)
-	}
-	if errWrite := os.WriteFile(filePath, compressed.Bytes(), 0644); errWrite != nil {
-		_ = os.Remove(filePath)
-		return errWrite
-	}
-	return nil
 }
 
 func writeLightweightClaudeOAuthOutboundLog(cfg *config.Config, info UpstreamRequestLog, index int) (err error) {

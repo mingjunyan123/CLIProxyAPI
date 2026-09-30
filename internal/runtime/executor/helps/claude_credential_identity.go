@@ -285,13 +285,17 @@ func ApplyClaudeCredentialMetadata(payload []byte, auth *cliproxyauth.Auth, sess
 		}
 	}
 
-	deviceIDs, _, errDeviceIDs := claudeauth.EnsureDeviceIDPoolFor(&auth.Metadata)
-	if errDeviceIDs != nil {
-		return nil, "", errDeviceIDs
-	}
-	deviceID, errDeviceID := claudeauth.SelectDeviceID(deviceIDs, sessionID)
-	if errDeviceID != nil {
-		return nil, "", errDeviceID
+	deviceID := claudeAdapterInboundDeviceID(existing)
+	if deviceID == "" {
+		deviceIDs, _, errDeviceIDs := claudeauth.EnsureDeviceIDPoolFor(&auth.Metadata)
+		if errDeviceIDs != nil {
+			return nil, "", errDeviceIDs
+		}
+		var errDeviceID error
+		deviceID, errDeviceID = claudeauth.SelectDeviceID(deviceIDs, sessionID)
+		if errDeviceID != nil {
+			return nil, "", errDeviceID
+		}
 	}
 	accountUUID := ClaudeCredentialAccountUUID(auth)
 	if accountUUID == "" {

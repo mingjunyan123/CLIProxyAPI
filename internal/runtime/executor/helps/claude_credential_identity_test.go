@@ -140,6 +140,7 @@ func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *
 		claudeauth.ClaudeDeviceIDsMetadataKey: deviceIDs,
 	}}
 	const sessionID = "11111111-2222-4333-8444-555555555555"
+	const inboundDeviceID = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	body := []byte(`{"messages":[{"role":"user","content":"x"}],"metadata":{"user_id":"{\"device_id\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"account_uuid\":\"downstream-account\",\"session_id\":\"downstream-session\",\"parent_session_id\":\"parent-1\",\"extra\":true}"}}`)
 
 	updated, selectedDevice, errApply := ApplyClaudeCredentialMetadata(body, auth, sessionID)
@@ -147,11 +148,11 @@ func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *
 		t.Fatalf("ApplyClaudeCredentialMetadata() error = %v", errApply)
 	}
 	userID := gjson.GetBytes(updated, "metadata.user_id").String()
-	if selectedDevice != deviceIDs[0] {
-		t.Fatalf("selected device_id = %q, want credential pool device", selectedDevice)
+	if selectedDevice != inboundDeviceID {
+		t.Fatalf("selected device_id = %q, want inbound device", selectedDevice)
 	}
-	if got := gjson.Get(userID, "device_id").String(); got != selectedDevice {
-		t.Fatalf("device_id = %q, want selected %q", got, selectedDevice)
+	if got := gjson.Get(userID, "device_id").String(); got != inboundDeviceID {
+		t.Fatalf("device_id = %q, want inbound device kept", got)
 	}
 	if got := gjson.Get(userID, "account_uuid").String(); got != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" {
 		t.Fatalf("account_uuid = %q, want credential account", got)
@@ -165,9 +166,39 @@ func TestApplyClaudeCredentialMetadataUsesCredentialDeviceAndPreservesExtras(t *
 	if !gjson.Get(userID, "extra").Bool() {
 		t.Fatal("extra metadata was not preserved")
 	}
-	wantPrefix := `{"device_id":"` + selectedDevice + `","account_uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","session_id":"` + sessionID + `"`
+	wantPrefix := `{"device_id":"` + inboundDeviceID + `","account_uuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","session_id":"` + sessionID + `"`
 	if !strings.HasPrefix(userID, wantPrefix) {
 		t.Fatalf("metadata.user_id = %q, want credential identity fields first", userID)
+	}
+}
+
+func TestApplyClaudeCredentialMetadataUsesPoolWhenInboundDeviceIDBlank(t *testing.T) {
+	deviceIDs := []string{
+		"0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	auth := &cliproxyauth.Auth{Metadata: map[string]any{
+		"account_uuid":                        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		claudeauth.ClaudeDeviceIDsMetadataKey: deviceIDs,
+	}}
+	const sessionID = "11111111-2222-4333-8444-555555555555"
+	bodies := [][]byte{
+		[]byte(`{"messages":[{"role":"user","content":"x"}]}`),
+		[]byte(`{"metadata":{"user_id":"{\"account_uuid\":\"downstream-account\",\"session_id\":\"downstream-session\"}"}}`),
+		[]byte(`{"metadata":{"user_id":"{\"device_id\":\"\",\"session_id\":\"downstream-session\"}"}}`),
+		[]byte(`{"metadata":{"user_id":"{\"device_id\":\"   \",\"session_id\":\"downstream-session\"}"}}`),
+		[]byte(`{"metadata":{"user_id":"{\"device_id\":1,\"session_id\":\"downstream-session\"}"}}`),
+	}
+	for _, body := range bodies {
+		updated, selectedDevice, errApply := ApplyClaudeCredentialMetadata(body, auth, sessionID)
+		if errApply != nil {
+			t.Fatalf("ApplyClaudeCredentialMetadata(%s) error = %v", body, errApply)
+		}
+		if selectedDevice != deviceIDs[0] {
+			t.Fatalf("selected device_id = %q, want credential pool device; body=%s", selectedDevice, body)
+		}
+		if got := gjson.Get(gjson.GetBytes(updated, "metadata.user_id").String(), "device_id").String(); got != deviceIDs[0] {
+			t.Fatalf("device_id = %q, want credential pool device; body=%s", got, body)
+		}
 	}
 }
 

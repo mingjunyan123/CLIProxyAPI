@@ -1076,13 +1076,11 @@ observability:
     error-logs-max-files: 10
 
     # Record proxy request/response logs. Management requests are excluded.
-    # When true, inbound HTTP capture is skipped. Only Claude OAuth outbound
-    # payloads are written, under logs/claude-oauth/<account>/.
     request-log: false
 
-    # When true, write the same Claude OAuth outbound payloads as gzip without
-    # enabling request-log. Files are {entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz.
-    # Default: false.
+    # When true, write Claude OAuth upstream request payloads as gzip.
+    # Independent of request-log. Files are {entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz
+    # under logs/claude-oauth/<account>/. Default: false.
     claude-oauth-outbound-log: false
 
   usage:

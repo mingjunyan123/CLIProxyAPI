@@ -33,7 +33,7 @@ func TestRecordAPIRequestWritesClaudeOAuthOutboundLog(t *testing.T) {
 	t.Setenv("WRITABLE_PATH", logRoot)
 
 	ctx := logging.WithRequestID(context.Background(), "req-1")
-	RecordAPIRequest(ctx, &config.Config{SDKConfig: config.SDKConfig{RequestLog: true}}, UpstreamRequestLog{
+	RecordAPIRequest(ctx, &config.Config{ClaudeOAuthOutboundLog: true}, UpstreamRequestLog{
 		URL:       "https://api.anthropic.com/v1/messages?beta=true",
 		Method:    http.MethodPost,
 		Headers:   http.Header{"X-Test": []string{"value"}},
@@ -100,7 +100,7 @@ func TestRecordAPIRequestSkipsNonClaudeOAuthOutboundLog(t *testing.T) {
 	logRoot := t.TempDir()
 	t.Setenv("WRITABLE_PATH", logRoot)
 
-	cfg := &config.Config{SDKConfig: config.SDKConfig{RequestLog: true}}
+	cfg := &config.Config{ClaudeOAuthOutboundLog: true, SDKConfig: config.SDKConfig{RequestLog: true}}
 	RecordAPIRequest(context.Background(), cfg, UpstreamRequestLog{
 		URL:      "https://api.anthropic.com/v1/messages",
 		Method:   http.MethodPost,
@@ -121,5 +121,24 @@ func TestRecordAPIRequestSkipsNonClaudeOAuthOutboundLog(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(logRoot, "logs", "claude-oauth")); !os.IsNotExist(err) {
 		t.Fatalf("claude oauth log dir exists or stat failed: %v", err)
+	}
+}
+
+func TestRecordAPIRequestRequestLogDoesNotWriteClaudeOAuthOutboundLog(t *testing.T) {
+	logRoot := t.TempDir()
+	t.Setenv("WRITABLE_PATH", logRoot)
+
+	RecordAPIRequest(context.Background(), &config.Config{SDKConfig: config.SDKConfig{RequestLog: true}}, UpstreamRequestLog{
+		URL:       "https://api.anthropic.com/v1/messages",
+		Method:    http.MethodPost,
+		Body:      []byte(`{"model":"claude-sonnet-4"}`),
+		Provider:  "claude",
+		AuthID:    "claude-auth",
+		AuthType:  "oauth",
+		AuthValue: "user@example.com",
+	})
+
+	if _, err := os.Stat(filepath.Join(logRoot, "logs", "claude-oauth")); !os.IsNotExist(err) {
+		t.Fatalf("request-log alone created claude oauth log dir: %v", err)
 	}
 }
