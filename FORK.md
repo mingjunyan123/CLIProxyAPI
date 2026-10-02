@@ -10,7 +10,7 @@ Fork-only code lives in dedicated files where possible. Upstream files keep a sh
 |---|---|---|
 | Adapter native entrypoints | `helps/claude_adapter_compat.go` | one `\|\|` in `claude_client_detection.go` |
 | Inbound `device_id` | `helps/claude_adapter_compat.go` | one call in `ApplyClaudeCredentialMetadata` |
-| Claude OAuth outbound logs | `helps/claude_oauth_request_log.go` | one call in `logging_helpers.go`; config field and v8 path |
+| Claude OAuth outbound logs | `helps/claude_oauth_request_log.go`, `internal/config/claude_oauth_outbound_log.go` | one call in `logging_helpers.go`; config field at the end of `Config`; v8 path appended after the upstream prefix list |
 | GHCR image | `.github/workflows/ghcr-image.yml` | none |
 
 ## Claude native pass-through

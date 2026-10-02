@@ -1061,6 +1061,11 @@ multimedia:
 # Application logs, request logs, usage aggregation, and profiling.
 observability:
   logs:
+    # Fork-only. When true, write Claude OAuth upstream request payloads as gzip.
+    # Independent of request-log. Files are {entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz
+    # under logs/claude-oauth/<account>/. Default: false.
+    claude-oauth-outbound-log: false
+
     # Enable debug logging
     debug: false
 
@@ -1077,11 +1082,6 @@ observability:
 
     # Record proxy request/response logs. Management requests are excluded.
     request-log: false
-
-    # When true, write Claude OAuth upstream request payloads as gzip.
-    # Independent of request-log. Files are {entrypoint}-YYYYMMDD-HHMMSS.ffffff.gz
-    # under logs/claude-oauth/<account>/. Default: false.
-    claude-oauth-outbound-log: false
 
   usage:
     # When false, disable in-memory usage statistics aggregation

@@ -57,11 +57,11 @@ func buildV8Paths() []configPath {
 		{"video-result-auth-cache-ttl", "multimedia.video-result-auth-cache-ttl"},
 		{"debug", "observability.logs.debug"}, {"logging-to-file", "observability.logs.logging-to-file"},
 		{"logs-max-total-size-mb", "observability.logs.logs-max-total-size-mb"}, {"request-log", "observability.logs.request-log"},
-		{"claude-oauth-outbound-log", "observability.logs.claude-oauth-outbound-log"},
 		{"error-logs-max-files", "observability.logs.error-logs-max-files"},
 		{"usage-statistics-enabled", "observability.usage.usage-statistics-enabled"},
 		{"redis-usage-queue-retention-seconds", "observability.usage.redis-usage-queue-retention-seconds"}, {"pprof", "observability.pprof"},
 	}
+	prefixes = append(prefixes, forkV8Paths()...)
 	var out []configPath
 	var walk func(reflect.Type, string, []int)
 	walk = func(t reflect.Type, path string, indexes []int) {
