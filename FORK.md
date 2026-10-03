@@ -2,13 +2,14 @@
 
 This repository tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and keeps a small set of local changes.
 
-Protocol translation, thinking suffixes, cloaking algorithms, signature validation, rate-limit handling, and the Claude Code version floor match upstream. Cloak versus pass-through is decided by native-client detection. This fork only adds two adapter entrypoints to that detection.
+Protocol translation, thinking suffixes, cloaking algorithms, signature validation, rate-limit handling, and the Claude Code version floor match upstream. Cloak versus pass-through is decided by native-client detection. This fork adds two adapter entrypoints to that detection, and it does not require `metadata.user_id` for confirmation.
 
 Fork-only code lives in dedicated files where possible. Upstream files keep a short hook so the next rebase does not replay the whole feature.
 
 | Feature | Dedicated files | Remaining hook in an upstream file |
 |---|---|---|
 | Adapter native entrypoints | `helps/claude_adapter_compat.go` | one `\|\|` in `claude_client_detection.go` |
+| Native confirmation ignores `metadata.user_id` | none | `standardSignals` in `claude_client_detection.go` drops that term |
 | Inbound `device_id` | `helps/claude_adapter_compat.go` | one call in `ApplyClaudeCredentialMetadata` |
 | Claude OAuth outbound logs | `helps/claude_oauth_request_log.go`, `internal/config/claude_oauth_outbound_log.go` | one call in `logging_helpers.go`; config field at the end of `Config`; v8 path appended after the upstream prefix list |
 | GHCR image | `.github/workflows/ghcr-image.yml` | none |
@@ -17,7 +18,7 @@ Fork-only code lives in dedicated files where possible. Upstream files keep a sh
 
 Upstream treats only `cli`, `sdk-cli`, and `claude-vscode` as native Claude Code surfaces.
 
-This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent, `claude-code-20250219` in Anthropic-Beta, and `metadata.user_id` except on `count_tokens`).
+This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent, and `claude-code-20250219` in Anthropic-Beta). A missing or invalid `metadata.user_id` does not by itself make the request unconfirmed. The measured Haiku helper profile still checks that field as part of its own body shape.
 
 The version floor is upstream's. The measured baseline is Claude Code `2.1.280`. A client counts when its major and minor match that baseline and its patch is at least `280`. A confirmed native request keeps the caller's `User-Agent`, including the entrypoint suffix. `X-Stainless-Package-Version` and `X-Stainless-Runtime-Version` stay on the measured baseline (`0.112.1` / `v26.3.0`) when they differ. A client below the floor is not native, and its `User-Agent` is replaced with `claude-cli/2.1.280 (external, cli)`.
 

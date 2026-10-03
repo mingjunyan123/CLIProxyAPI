@@ -1122,7 +1122,7 @@ func TestClaudeExecutor_ConfirmedVSCodeAgentSDKRequestPreservesIdentity(t *testi
 	}
 }
 
-func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *testing.T) {
+func TestClaudeExecutor_MissingMetadataDoesNotCloakConfirmedVSCode(t *testing.T) {
 	var seenBody []byte
 	var seenHeaders http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1133,6 +1133,7 @@ func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *
 	}))
 	defer server.Close()
 
+	const vscodeUA = "claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"
 	payload := []byte(`{"model":"claude-opus-5","system":"spoofed-system","messages":[{"role":"user","content":"x"}]}`)
 	executor := NewClaudeExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{
@@ -1147,7 +1148,7 @@ func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *
 		SourceFormat:    sdktranslator.FormatClaude,
 		OriginalRequest: payload,
 		Headers: http.Header{
-			"User-Agent":     {"claude-cli/2.1.280 (external, claude-vscode, agent-sdk/0.3.220)"},
+			"User-Agent":     {vscodeUA},
 			"X-App":          {"cli"},
 			"Anthropic-Beta": {"claude-code-20250219"},
 		},
@@ -1156,19 +1157,15 @@ func TestClaudeExecutor_CopiedVSCodeAgentSDKHeadersWithoutMetadataAreCloaked(t *
 		t.Fatalf("Execute() error = %v", errExecute)
 	}
 
-	if got := seenHeaders.Get("User-Agent"); got != "claude-cli/2.1.280 (external, cli)" {
-		t.Fatalf("User-Agent = %q, want CLI cloak", got)
+	if got := seenHeaders.Get("User-Agent"); got != vscodeUA {
+		t.Fatalf("User-Agent = %q, want caller UA kept", got)
 	}
-	if got := gjson.GetBytes(seenBody, "system.#").Int(); got != 2 {
-		t.Fatalf("system block count = %d, want billing and CLI identity only", got)
+	if got := gjson.GetBytes(seenBody, "system").String(); got != "spoofed-system" {
+		t.Fatalf("system = %q, want caller system kept", got)
 	}
-	content := gjson.GetBytes(seenBody, "messages.0.content").Array()
-	if len(content) != 2 {
-		t.Fatalf("messages[0].content has %d blocks, want currentDate and user text", len(content))
+	if got := gjson.GetBytes(seenBody, "messages.0.content").String(); got != "x" {
+		t.Fatalf("messages.0.content = %q, want caller text kept", got)
 	}
-	assertClaudeCodeCurrentDateBlock(t, content[0])
-	assertEphemeralUserTextBlock(t, content[1], "x", "")
-	assertClaudeMidConversationSystemMessage(t, seenBody, 1, "spoofed-system", "")
 }
 
 func TestClaudeExecutor_AgentSDKEntrypointWithStrongSignalsUsesCLICloak(t *testing.T) {

@@ -67,3 +67,12 @@ docker-compose.override.yml
 
 # Local LLM Wiki vault
 .llm-wiki
+
+# Local probe and device-id sync scripts
+_tmp_probe.py
+_tmp_probe2.py
+_tmp_probe_accounts.py
+_tmp_probe_commented_accounts.py
+_tmp_probe_earnlot_verify.py
+_tmp_probe_jsonfmt.py
+scripts/sync_claude_device_ids.py

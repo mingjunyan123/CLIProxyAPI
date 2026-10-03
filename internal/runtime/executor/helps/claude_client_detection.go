@@ -129,8 +129,9 @@ type ClaudeCodeRequestDetection struct {
 }
 
 // DetectClaudeCodeRequest first mirrors CCH's strong-signal contract, then
-// applies CPA's native-client policy. Standard Messages requests require all
-// four strong signals; count_tokens omits metadata.user_id. A separate narrow
+// applies CPA's native-client policy. Standard requests require X-App, a
+// plausible Claude Code User-Agent, and claude-code-20250219. metadata.user_id
+// is still parsed, but it does not decide confirmation. A separate narrow
 // profile recognizes measured native Haiku helper requests that intentionally
 // omit claude-code-20250219. Generic sdk-ts/sdk-py Agent SDK entrypoints remain
 // unconfirmed and receive CLI cloaking; native adapter and Claude Code surfaces
@@ -154,7 +155,7 @@ func DetectClaudeCodeRequest(headers http.Header, payload []byte, countTokens bo
 	metadataUserID := gjson.GetBytes(payload, "metadata.user_id")
 	detection.MetadataUserID = metadataUserID.Exists() && metadataUserID.Type == gjson.String && isValidUserID(metadataUserID.String())
 	detection.NativeClient = nativeClaudeEntrypoints[entrypoint] || claudeAdapterNativeEntrypoint(entrypoint)
-	standardSignals := detection.XAppCLI && detection.UserAgent && detection.BetasPresent && (countTokens || detection.MetadataUserID)
+	standardSignals := detection.XAppCLI && detection.UserAgent && detection.BetasPresent
 	detection.HelperProfile = detection.NativeClient && matchesMeasuredClaudeCodeHelperProfile(headers, payload, countTokens, detection, cfg)
 	detection.StrongSignals = standardSignals || detection.HelperProfile
 	detection.Confirmed = detection.StrongSignals && detection.NativeClient

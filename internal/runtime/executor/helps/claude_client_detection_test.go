@@ -121,7 +121,6 @@ func TestDetectClaudeCodeRequestRejectsEachMissingMessageSignal(t *testing.T) {
 		{name: "x-app", headers: http.Header{"User-Agent": {"claude-cli/2.1.280 (external, cli)"}, "Anthropic-Beta": {"claude-code-20250219"}}, body: payload},
 		{name: "user-agent", headers: http.Header{"User-Agent": {"curl/8.7.1"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, body: payload},
 		{name: "betas", headers: http.Header{"User-Agent": {"claude-cli/2.1.280 (external, cli)"}, "X-App": {"cli"}}, body: payload},
-		{name: "metadata", headers: confirmedClaudeCodeHeaders(), body: []byte(`{"messages":[]}`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if detection := DetectClaudeCodeRequest(test.headers, test.body, false); detection.Confirmed {
@@ -432,16 +431,40 @@ func TestDetectClaudeCodeRequestRejectsNearMissHaikuHelpers(t *testing.T) {
 	}
 }
 
+func TestDetectClaudeCodeRequestConfirmsWithoutValidMetadata(t *testing.T) {
+	headers := confirmedClaudeCodeHeaders()
+	for _, test := range []struct {
+		name   string
+		userID string
+	}{
+		{name: "missing"},
+		{name: "legacy", userID: "user_abc_account__session_session"},
+		{name: "short device", userID: `{"device_id":"abc","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`},
+		{name: "uppercase device", userID: `{"device_id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`},
+		{name: "invalid session", userID: `{"device_id":"0000000000000000000000000000000000000000000000000000000000000000","account_uuid":"","session_id":"session"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{"messages":[]}`)
+			if test.userID != "" {
+				body = claudeCodeDetectionPayload(test.userID)
+			}
+			detection := DetectClaudeCodeRequest(headers, body, false)
+			if !detection.Confirmed || !detection.StrongSignals {
+				t.Fatalf("detection = %#v, want confirmed without a valid metadata.user_id", detection)
+			}
+			if detection.MetadataUserID {
+				t.Fatalf("metadata signal = true, want false: %#v", detection)
+			}
+		})
+	}
+}
+
 func TestDetectClaudeCodeRequestRejectsMalformedNativeSignals(t *testing.T) {
 	tests := []struct {
 		name    string
 		headers http.Header
 		userID  string
 	}{
-		{name: "legacy metadata", headers: confirmedClaudeCodeHeaders(), userID: "user_abc_account__session_session"},
-		{name: "short device", headers: confirmedClaudeCodeHeaders(), userID: `{"device_id":"abc","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`},
-		{name: "uppercase device", headers: confirmedClaudeCodeHeaders(), userID: `{"device_id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","account_uuid":"","session_id":"11111111-2222-4333-8444-555555555555"}`},
-		{name: "invalid session", headers: confirmedClaudeCodeHeaders(), userID: `{"device_id":"0000000000000000000000000000000000000000000000000000000000000000","account_uuid":"","session_id":"session"}`},
 		{name: "malformed user agent", headers: http.Header{"User-Agent": {"claude-cli/not-a-version (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
 		{name: "older patch user agent", headers: http.Header{"User-Agent": {"claude-cli/2.1.257 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
 		{name: "unmeasured next-minor user agent", headers: http.Header{"User-Agent": {"claude-cli/2.2.0 (external, cli)"}, "X-App": {"cli"}, "Anthropic-Beta": {"claude-code-20250219"}}, userID: validClaudeCodeMetadataUserID},
