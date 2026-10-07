@@ -33,6 +33,16 @@ var operonSkipHeaders = map[string]struct{}{
 	"upgrade":             {},
 	"x-api-key":           {},
 	"x-goog-api-key":      {},
+	"forwarded":           {},
+	"via":                 {},
+	"x-forwarded-for":     {},
+	"x-forwarded-host":    {},
+	"x-forwarded-port":    {},
+	"x-forwarded-proto":   {},
+	"x-real-ip":           {},
+	"x-client-ip":         {},
+	"true-client-ip":      {},
+	"cf-connecting-ip":    {},
 }
 
 func operonPassthroughSeen(ctx context.Context, opts cliproxyexecutor.Options) bool {
@@ -245,6 +255,22 @@ func (e *ClaudeExecutor) forwardOperonOAuthStream(ctx context.Context, auth *cli
 		var event bytes.Buffer
 		var upstreamMessageID string
 		upstreamCompleted := false
+		publishCancellation := func() {
+			cause := ctx.Err()
+			if cause == nil {
+				cause = context.Canceled
+			}
+			cancelErr := newClaudeOAuthCancellationError(ctx, true, cause)
+			if cancelErr == nil {
+				cancelErr = cause
+			}
+			helps.RecordAPIResponseError(ctx, e.cfg, cancelErr)
+			streamUsage.PublishFailure(ctx, reporter, cancelErr)
+			select {
+			case out <- cliproxyexecutor.StreamChunk{Err: cancelErr}:
+			default:
+			}
+		}
 		flushEvent := func() bool {
 			if event.Len() == 0 {
 				return true
@@ -268,6 +294,7 @@ func (e *ClaudeExecutor) forwardOperonOAuthStream(ctx context.Context, auth *cli
 			event.WriteByte('\n')
 			if len(bytes.TrimSpace(line)) == 0 {
 				if !flushEvent() {
+					publishCancellation()
 					return
 				}
 				if upstreamCompleted {
@@ -276,6 +303,7 @@ func (e *ClaudeExecutor) forwardOperonOAuthStream(ctx context.Context, auth *cli
 			}
 		}
 		if !flushEvent() {
+			publishCancellation()
 			return
 		}
 		if upstreamCompleted {
