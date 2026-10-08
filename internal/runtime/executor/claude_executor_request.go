@@ -295,6 +295,11 @@ func claudeCanonicalModel(model string) string {
 	return model
 }
 
+func isClaudeHaiku55Model(model string) bool {
+	model = claudeCanonicalModel(model)
+	return model == "claude-haiku-5-5" || strings.HasPrefix(model, "claude-haiku-5-5[")
+}
+
 // claudeModelHasPerTurnEffort reports models whose 2.1.280 catalog capability
 // per_turn_effort puts per-turn-control-2026-07-01 on every first-party request.
 func isClaudeOpus55Model(model string) bool {
@@ -419,7 +424,7 @@ func claudeRequestSupportsEffort(body []byte, requested map[string]bool) bool {
 			return false
 		}
 		model := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "model").String()))
-		if isClaudeHaikuModel(model) {
+		if isClaudeHaikuModel(model) && !isClaudeHaiku55Model(model) {
 			return false
 		}
 		thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
@@ -819,6 +824,18 @@ func disableThinkingIfToolChoiceForced(body []byte) []byte {
 //   - thinking active: temperature must be 1, top_p must be >= 0.95, top_k unset
 //   - otherwise: temperature and top_p cannot both be specified
 func normalizeClaudeSamplingForUpstream(body []byte, nativeOwned bool) []byte {
+	if isClaudeHaiku55Model(gjson.GetBytes(body, "model").String()) {
+		// Haiku 5.5 permits only default sampling values, even without explicit thinking.
+		if temperature := gjson.GetBytes(body, "temperature"); !nativeOwned || (temperature.Exists() && temperature.Num != 1) {
+			body, _ = sjson.DeleteBytes(body, "temperature")
+		}
+		if topP := gjson.GetBytes(body, "top_p"); !nativeOwned || (topP.Exists() && topP.Num != 0.99) || gjson.GetBytes(body, "temperature").Exists() {
+			body, _ = sjson.DeleteBytes(body, "top_p")
+		}
+		body, _ = sjson.DeleteBytes(body, "top_k")
+		return body
+	}
+
 	thinkingActive := false
 	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String())) {
 	case "enabled", "adaptive", "auto":
