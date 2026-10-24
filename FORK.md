@@ -16,11 +16,11 @@ Fork-only code lives in dedicated files where possible. Upstream files keep a sh
 
 ## Claude native pass-through
 
-Upstream treats only `cli`, `sdk-cli`, and `claude-vscode` as native Claude Code surfaces.
+Upstream treats `cli`, `sdk-cli`, `sdk-ts`, and `claude-vscode` as native Claude Code surfaces.
 
 This fork also treats **`local-agent`** and **`claude-desktop-3p`** as native when the usual Claude Code strong signals are present (`X-App: cli`, a plausible `claude-cli/…` User-Agent, and `claude-code-20250219` in Anthropic-Beta). A missing or invalid `metadata.user_id` does not by itself make the request unconfirmed. The measured Haiku helper profile still checks that field as part of its own body shape.
 
-The version floor is upstream's. The measured baseline is Claude Code `2.1.280`. A client counts when its major and minor match that baseline and its patch is at least `280`. A confirmed native request keeps the caller's `User-Agent`, including the entrypoint suffix. `X-Stainless-Package-Version` and `X-Stainless-Runtime-Version` stay on the measured baseline (`0.112.1` / `v26.3.0`) when they differ. A client below the floor is not native, and its `User-Agent` is replaced with `claude-cli/2.1.280 (external, cli)`.
+The version floor is upstream's. The default measured baseline is Claude Code `2.1.280`. A client counts when its major and minor match the configured baseline and its patch is at least that baseline's patch. A confirmed native request keeps the caller's `User-Agent`, including the entrypoint suffix. Without device-profile stabilization or explicit version pins, plausible `X-Stainless-Package-Version` and `X-Stainless-Runtime-Version` values at or above the baseline (`0.112.1` / `v26.3.0` by default) are preserved. With effective cloak mode `never`, confirmed caller versions at or above the configured baseline take precedence over device-profile stabilization and version pins; missing, invalid, or older values fall back to the configured defaults. A client below the User-Agent floor is not confirmed native and receives the configured CLI fingerprint.
 
 For those confirmed requests, cliproxyapi does not cloak the body into a CLI shape. It keeps:
 
@@ -40,9 +40,9 @@ It still rewrites OAuth identity the same way as upstream:
 - OAuth still signs `cch=`
 - `advisor-tool-2026-03-01` is still inserted when the body declares an advisor tool
 
-Other entrypoints (`sdk-ts`, `sdk-py`, `claude-desktop`, remote, copies of the User-Agent, and so on) are still cloaked as CLI.
+Other entrypoints (`sdk-py`, `claude-desktop`, remote, and so on) remain unconfirmed by default and are cloaked as CLI on OAuth. With effective cloak mode `never`, requests with a confirmed Claude Code shape also preserve caller headers and use native cache and sampling handling. Copying the User-Agent alone is insufficient.
 
-Direct `/v1/messages` OAuth requests that are not confirmed native are cloaked, matching upstream.
+Direct `/v1/messages` OAuth requests that are not confirmed native are cloaked by default, matching upstream; an explicit cloak mode can override that default.
 
 ## Claude OAuth outbound logging
 
